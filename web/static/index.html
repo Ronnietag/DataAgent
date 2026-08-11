@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataAgent</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --border: #e6e6e9;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #9f9fa8;
+    --accent: #4f46e5;
+    --accent-text: #4338ca;
+    --accent-soft: #eef2ff;
+    --green: #16a34a;
+    --green-soft: #f0fdf4;
+    --red: #dc2626;
+    --red-soft: #fef2f2;
+    --yellow: #d97706;
+    --yellow-soft: #fffbeb;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.05);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.07);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  button { font-family: inherit; }
+
+  /* ============ 图标 ============ */
+  .ic { width: 15px; height: 15px; flex-shrink: 0; }
+  .ic-spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============ 顶栏 ============ */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 12px 20px; flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand-badge {
+    width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(79,70,229,.3);
+  }
+  .brand-badge .ic { width: 18px; height: 18px; }
+  .brand-title { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.2; }
+  .brand-sub { font-size: 12px; color: var(--text-3); line-height: 1.3; margin-top: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid; font-weight: 500; }
+  .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge-ok { color: var(--green); border-color: #bbf7d0; background: var(--green-soft); }
+  .badge-err { color: var(--red); border-color: #fecaca; background: var(--red-soft); }
+
+  .btn-ghost, .btn-grad { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 6px 11px; border-radius: 8px; cursor: pointer; transition: all .15s; }
+  .btn-ghost { background: #fff; border: 1px solid var(--border); color: var(--text-2); }
+  .btn-ghost:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .btn-ghost:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-danger:hover:not(:disabled) { color: var(--red); border-color: #fecaca; background: var(--red-soft); }
+  .btn-grad { background: var(--accent); border: 1px solid transparent; color: #fff; font-weight: 500; }
+  .btn-grad:hover:not(:disabled) { background: var(--accent-text); }
+  .btn-grad:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ============ 主体 ============ */
+  .main { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  #messages {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 24px 24px 40px;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+  #messages > * { width: 100%; }
+
+  .empty-hint { text-align: center; color: var(--text-3); padding: 80px 0; }
+  .empty-hint .icon-box {
+    width: 52px; height: 52px; margin: 0 auto 16px; border-radius: 14px;
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .empty-hint .icon-box .ic { width: 24px; height: 24px; }
+  .empty-hint p { font-size: 14px; font-weight: 500; color: var(--text-2); margin-top: 8px; }
+  .empty-hint .s { font-size: 12px; color: var(--text-3); font-weight: 400; margin-top: 4px; }
+
+  /* ============ 输入区 ============ */
+  .composer { background: var(--card); border-top: 1px solid var(--border); padding: 14px 16px 12px; flex-shrink: 0; }
+  .composer-inner {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: #fff; border: 1px solid var(--border-strong); border-radius: 12px;
+    padding: 6px 6px 6px 14px; transition: border-color .15s, box-shadow .15s;
+  }
+  .composer-inner:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+  #question-input { flex: 1; border: none; outline: none; font-size: 14px; color: var(--text); background: transparent; padding: 9px 0; }
+  #question-input::placeholder { color: var(--text-3); }
+  #question-input:disabled { cursor: not-allowed; }
+  .send-btn {
+    width: 38px; height: 38px; border-radius: 10px; background: var(--accent); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+    border: none; transition: background .15s, opacity .15s; flex-shrink: 0;
+  }
+  .send-btn .ic { width: 17px; height: 17px; }
+  .send-btn:hover:not(:disabled) { background: var(--accent-text); }
+  .send-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .composer-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .example-btn {
+    font-size: 12px; padding: 5px 12px; background: #fff; color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 999px; cursor: pointer; transition: all .15s;
+  }
+  .example-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .example-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ============ 消息 ============ */
+  .msg-user { display: flex; justify-content: flex-end; }
+  .bubble-user {
+    max-width: min(560px, 90%); background: var(--accent); color: #fff;
+    font-size: 13px; line-height: 1.6; padding: 9px 14px;
+    border-radius: 12px 12px 3px 12px; box-shadow: var(--shadow-sm);
+  }
+  .msg-ai { display: flex; }
+  .ai-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); }
+  .ai-card-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #f4f4f5; }
+  .ai-avatar {
+    width: 24px; height: 24px; border-radius: 7px; background: var(--accent); color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .ai-avatar .ic { width: 14px; height: 14px; }
+  .ai-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .ai-status { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+  .ai-card-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+  .st-running { color: var(--accent); }
+  .st-ok { color: var(--green); }
+  .st-warn { color: var(--yellow); }
+  .st-err { color: var(--red); }
+  .st-neutral { color: var(--text-3); }
+
+  .action-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .action-btn {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+    padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border);
+    background: #fff; color: var(--text-2); cursor: pointer; transition: all .15s;
+  }
+  .action-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .action-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  .insight-card { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; }
+  .insight-title { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--accent-text); margin-bottom: 5px; }
+  .insight-body { font-size: 13px; color: var(--text); line-height: 1.65; margin: 0; }
+  .suggest-box { display: flex; flex-direction: column; gap: 6px; }
+  .suggest-title { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--text-3); margin: 0; }
+  .suggestion-btn {
+    display: block; width: 100%; text-align: left; font-size: 12px; padding: 8px 12px;
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-2); cursor: pointer; transition: all .15s;
+  }
+  .suggestion-btn:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+  .chart-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #fff; box-shadow: var(--shadow-sm); }
+  .chart-title { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text-2); margin: 0 0 12px; }
+  .chart-container { width: 100%; height: 360px; }
+
+  .report-card { border: 1px solid var(--accent); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: var(--shadow-sm); }
+  .report-card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid #eef2ff; background: var(--accent-soft);
+  }
+  .report-label { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--accent-text); }
+  .report-card-body { padding: 20px; max-height: 600px; overflow-y: auto; }
+
+  .result-meta { font-size: 12px; color: var(--text-3); margin: 0 0 8px; }
+  .result-card { border: 1px solid var(--border); border-radius: 10px; overflow: auto; max-height: 384px; background: #fff; box-shadow: var(--shadow-sm); }
+  .result-table { border-collapse: collapse; width: 100%; }
+  .result-table th {
+    position: sticky; top: 0; z-index: 1; background: #fafafa; border-bottom: 1px solid var(--border);
+    color: var(--text-2); font-weight: 600; text-align: left; white-space: nowrap; padding: 8px 12px; font-size: 12px;
+  }
+  .result-table td { border-bottom: 1px solid #f4f4f5; padding: 6px 12px; white-space: nowrap; font-size: 12px; color: var(--text-2); }
+  .result-table tbody tr:hover td { background: #fafafa; }
+
+  .ai-code summary { cursor: pointer; color: var(--text-3); display: inline-flex; align-items: center; gap: 5px; font-size: 12px; user-select: none; }
+  .ai-code summary:hover { color: var(--accent); }
+  .ai-code pre {
+    background: #18181b; color: #f4f4f5; padding: 12px 14px; border-radius: 10px; margin: 8px 0 0;
+    overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+  }
+
+  /* ============ Markdown 报告 ============ */
+  .report-content { font-size: 13px; line-height: 1.7; color: var(--text-2); }
+  .report-content h1 { font-size: 20px; font-weight: 700; margin: 0 0 16px; color: var(--text); padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .report-content h2 { font-size: 16px; font-weight: 600; margin: 20px 0 10px; color: var(--text); padding-left: 10px; border-left: 3px solid var(--accent); }
+  .report-content h3 { font-size: 14px; font-weight: 600; margin: 14px 0 8px; color: var(--text); }
+  .report-content p { margin: 6px 0; }
+  .report-content ul, .report-content ol { margin: 6px 0; padding-left: 24px; }
+  .report-content li { margin: 3px 0; }
+  .report-content table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
+  .report-content th { background: #fafafa; padding: 6px 8px; border: 1px solid var(--border); text-align: left; font-weight: 600; color: var(--text-2); }
+  .report-content td { padding: 5px 8px; border: 1px solid var(--border); }
+  .report-content tr:hover { background: #fafafa; }
+  .report-content code { background: #f0f0f1; color: var(--accent-text); padding: 1px 5px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .report-content strong { color: var(--text); font-weight: 600; }
+  .report-content blockquote { border-left: 3px solid var(--border-strong); background: #fafafa; margin: 8px 0; padding: 6px 12px; color: var(--text-2); border-radius: 0 8px 8px 0; }
+  .report-content a { color: var(--accent); }
+
+  /* ============ 弹窗 ============ */
+  .modal-mask {
+    position: fixed; inset: 0; z-index: 50; background: rgba(24,24,27,.45); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .modal-shell { background: #fff; width: 100%; max-width: 1024px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+  .modal-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
+  .modal-title .ic { color: var(--accent); }
+  .modal-sub { font-size: 12px; color: var(--text-3); font-weight: 400; }
+  .modal-actions { display: flex; gap: 8px; }
+  .modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+  .modal-status { padding: 10px 20px; background: #fafafa; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); line-height: 1.6; }
+  .modal-loading, .modal-error { text-align: center; padding: 48px 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .modal-loading { color: var(--text-3); }
+  .modal-error { color: var(--red); }
+
+  .notes-bar { padding: 10px 20px; background: var(--yellow-soft); border-bottom: 1px solid #fde68a; font-size: 12px; color: #92400e; line-height: 1.6; display: flex; align-items: center; gap: 6px; }
+  .notes-bar .ic { flex-shrink: 0; }
+  .notes-bar code { background: #fef3c7; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+  .notes-info { background: #eff6ff; border-bottom-color: #bfdbfe; color: #1e40af; }
+  .notes-info code { background: #dbeafe; }
+  .token-bar { padding: 10px 20px; background: #fafafa; border-bottom: 1px solid var(--border); font-size: 12px; display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+  .token-bar .ic { color: var(--text-3); }
+  #admin-token-input, #memory-token-input { flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+  /* ============ 配置/记忆表单 ============ */
+  #admin-form { display: flex; flex-direction: column; gap: 16px; }
+  #memory-form { display: flex; flex-direction: column; gap: 10px; }
+  .rule-section { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .rule-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
+  .rule-title { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; margin: 0; }
+  .rule-title .ic { color: var(--accent); }
+  .rule-sub { font-size: 12px; color: var(--text-3); font-weight: 400; }
+  .rule-body { background: #fafafa; border: 1px solid #f0f0f1; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .rule-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  .rule-stack { display: flex; flex-direction: column; gap: 10px; }
+  .rule-row { background: #fafafa; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .row-desc { margin-top: 10px; }
+  .empty-note { font-size: 12px; color: var(--text-3); text-align: center; padding: 16px 0; font-style: italic; }
+  .field-label { display: block; font-size: 11px; font-weight: 500; color: var(--text-3); margin-bottom: 4px; }
+  .chk-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); cursor: pointer; padding-top: 4px; }
+  .chk-cell { padding-top: 20px; }
+  .del-cell { padding-top: 20px; text-align: center; }
+  .icon-del {
+    display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: 7px; color: var(--text-3); background: transparent; border: none; cursor: pointer; transition: all .15s;
+  }
+  .icon-del:hover { color: var(--red); background: var(--red-soft); }
+  .input-sub { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+  .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  .form-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; align-items: start; }
+  .c1 { grid-column: span 1; }
+  .c2 { grid-column: span 2; }
+  .c3 { grid-column: span 3; }
+  .c4 { grid-column: span 4; }
+  .c5 { grid-column: span 5; }
+
+  .input-modern {
+    width: 100%; border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px;
+    font-size: 13px; background: #fff; color: var(--text); outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input-modern:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+  .input-modern:disabled { background: #f4f4f5; color: var(--text-3); }
+  select.input-modern { padding: 6px 8px; }
+  textarea.input-modern { resize: none; line-height: 1.5; }
+  input[type="range"] { accent-color: var(--accent); }
+  input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; margin: 0; }
+
+  .mem-head { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; padding: 0 4px; font-size: 11px; color: var(--text-3); font-weight: 500; }
+  .mem-addbar { padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .hint { font-size: 12px; color: var(--text-3); }
+  .mem-key-col, .mem-val-col { display: flex; flex-direction: column; gap: 6px; }
+  .mem-meta { font-size: 11px; color: var(--text-3); display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
+  .mem-from { display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mem-time { display: inline-flex; align-items: center; gap: 4px; }
+  .mem-meta .ic { width: 12px; height: 12px; flex-shrink: 0; }
+  .conf-row { display: flex; align-items: center; gap: 6px; }
+  .conf-range { flex: 1; }
+  .conf-num { width: 46px; text-align: center; font-size: 12px; padding: 3px 4px; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); }
+  .conf-evidence { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+  .src-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid; font-weight: 500; white-space: nowrap; }
+  .src-manual { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+  .src-auto { color: var(--green); border-color: #bbf7d0; background: var(--green-soft); }
+  .src-cell { padding-top: 6px; text-align: center; }
+  .empty-state { text-align: center; color: var(--text-3); padding: 48px 0; }
+  .empty-state .icon-box { width: 48px; height: 48px; margin: 0 auto 12px; border-radius: 12px; background: #f4f4f5; color: var(--text-3); display: flex; align-items: center; justify-content: center; }
+  .empty-state .icon-box .ic { width: 22px; height: 22px; }
+  .empty-state p.m { font-size: 13px; font-weight: 500; color: var(--text-2); margin: 0; }
+  .empty-state p.s { font-size: 12px; margin-top: 4px; }
+
+  /* ============ 动效 / 工具 ============ */
+  .thinking { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  .dot-flashing { animation: dotFlashing 1s ease-in-out infinite; }
+  @keyframes dotFlashing { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+  .msg-enter { animation: slideIn .25s ease-out; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .hidden { display: none !important; }
+  .opacity-60 { opacity: .6; }
+  .opacity-50 { opacity: .5; }
+
+  .scroll-area::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroll-area::-webkit-scrollbar-track { background: transparent; }
+  .scroll-area::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 4px; }
+  .scroll-area::-webkit-scrollbar-thumb:hover { background: #b8b8bd; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand-badge">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+    </div>
+    <div>
+      <h1 class="brand-title">DataAgent</h1>
+      <p class="brand-sub" id="datasource-summary">加载中...</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="llm-badge" class="badge"></span>
+    <button id="session-report-btn" class="btn-ghost" title="基于本次对话所有分析生成总结报告" disabled>
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+      会话总结
+    </button>
+    <button id="admin-btn" class="btn-ghost" title="修改业务规则">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
+      配置
+    </button>
+    <button id="memory-btn" class="btn-ghost" title="查看/管理用户习惯记忆">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
+      记忆
+    </button>
+    <button id="clear-btn" class="btn-ghost btn-danger" title="清空对话历史">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+      清空对话
+    </button>
+  </div>
+</header>
+
+<main class="main">
+  <div id="messages" class="scroll-area">
+    <div id="empty-hint" class="empty-hint">
+      <div class="icon-box">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+      </div>
+      <p class="m">输入问题开始对话</p>
+      <p class="s">数据源已预加载,所有问题都基于同一份数据</p>
+    </div>
+  </div>
+
+  <div class="composer">
+    <div class="composer-inner">
+      <input id="question-input" type="text" placeholder="输入问题,Enter 发送" disabled autocomplete="off">
+      <button id="send-btn" class="send-btn" disabled title="发送">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+      </button>
+    </div>
+    <div class="composer-chips">
+      <button class="example-btn" data-q="找 top10 增长率最高的代表">top10 增长率</button>
+      <button class="example-btn" data-q="按大区看哪个增长率最高">按大区</button>
+      <button class="example-btn" data-q="统计每个产品的代表覆盖数">产品覆盖</button>
+      <button class="example-btn" data-q="G-川渝大区各代表学术接受度总和">川渝大区</button>
+    </div>
+  </div>
+</main>
+
+<!-- Session 报告弹窗 -->
+<div id="session-modal" class="modal-mask hidden">
+  <div class="modal-shell">
+    <div class="modal-header">
+      <h2 class="modal-title">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+        会话总结报告
+      </h2>
+      <div class="modal-actions">
+        <button id="session-modal-download" class="btn-grad" disabled>
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          下载 .md
+        </button>
+        <button id="session-modal-close" class="btn-ghost">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          关闭
+        </button>
+      </div>
+    </div>
+    <div id="session-modal-body" class="modal-body">
+      <p class="modal-loading">
+        <svg class="ic ic-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        加载中...
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- 后台配置弹窗 -->
+<div id="admin-modal" class="modal-mask hidden">
+  <div class="modal-shell">
+    <div class="modal-header">
+      <h2 class="modal-title">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
+        后台配置 · 业务规则
+      </h2>
+      <div class="modal-actions">
+        <button id="admin-save" class="btn-grad">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          保存
+        </button>
+        <button id="admin-reload" class="btn-ghost" title="放弃修改,重新加载">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          重载
+        </button>
+        <button id="admin-close" class="btn-ghost">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          关闭
+        </button>
+      </div>
+    </div>
+    <div class="notes-bar">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+      保存后立即生效(每次 LLM 调用都会重新拼装 prompt)。Token 由启动时环境变量 <code>ADMIN_TOKEN</code> 配置。
+    </div>
+    <div class="token-bar">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Admin Token:</span>
+      <input id="admin-token-input" type="password" value="" placeholder="输入 Admin Token" class="input-modern">
+    </div>
+    <div id="admin-form" class="modal-body"></div>
+    <div id="admin-status" class="modal-status"></div>
+  </div>
+</div>
+
+<!-- 记忆管理弹窗 -->
+<div id="memory-modal" class="modal-mask hidden">
+  <div class="modal-shell">
+    <div class="modal-header">
+      <h2 class="modal-title">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
+        用户习惯记忆 <span class="modal-sub">(自动学习 + 手动管理)</span>
+      </h2>
+      <div class="modal-actions">
+        <button id="memory-save" class="btn-grad">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          保存
+        </button>
+        <button id="memory-reload" class="btn-ghost" title="放弃修改,重新加载">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          重载
+        </button>
+        <button id="memory-close" class="btn-ghost">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          关闭
+        </button>
+      </div>
+    </div>
+    <div class="notes-bar notes-info">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      每条习惯 LLM 都会看到(置信度 ≥ 0.5)。Auto 标签是 agent 自动学来的,Manual 是手动加的。修改保存后立即生效,不需要重启。
+    </div>
+    <div class="token-bar">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Admin Token:</span>
+      <input id="memory-token-input" type="password" value="" placeholder="输入 Admin Token" class="input-modern">
+    </div>
+    <div id="memory-form" class="modal-body"></div>
+    <div id="memory-status" class="modal-status"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const svg = (body, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+const IC = {
+  logo: svg('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>'),
+  send: svg('<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'),
+  trash: svg('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>'),
+  sliders: svg('<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>'),
+  sparkles: svg('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>'),
+  file: svg('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>'),
+  code: svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
+  bulb: svg('<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>'),
+  chart: svg('<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>'),
+  copy: svg('<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>'),
+  download: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>'),
+  x: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+  refresh: svg('<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>'),
+  plus: svg('<path d="M5 12h14"/><path d="M12 5v14"/>'),
+  lock: svg('<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
+  alert: svg('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+  info: svg('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'),
+  filter: svg('<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>'),
+  tag: svg('<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>'),
+  pen: svg('<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>'),
+  pin: svg('<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/>'),
+  brain: svg('<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>'),
+  palette: svg('<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>'),
+  calc: svg('<rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/>'),
+  check: svg('<path d="M20 6 9 17l-5-5"/>'),
+  spinner: svg('<path d="M21 12a9 9 0 1 1-6.219-8.56"/>', 'ic-spin'),
+  msg: svg('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>'),
+  target: svg('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>'),
+  building: svg('<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/>'),
+  list: svg('<path d="M8 6H21"/><path d="M8 12H21"/><path d="M8 18H21"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>'),
+  clock: svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>')
+};
+
+function safeMarkdown(md) {
+  const renderer = new marked.Renderer();
+  const origLink = renderer.link.bind(renderer);
+  renderer.link = (href, title, text) => {
+    const ok = /^(https?:|mailto:|#|\/)/i.test(href || '');
+    return ok ? origLink(href, title, text) : `<span>${text}</span>`;
+  };
+  renderer.image = () => '';
+  renderer.html = () => '';
+  return marked.parse(md, { renderer });
+}
+
+let sessionId = null;
+let busy = false;
+const chartInstances = new Map();
+
+async function bootstrap() {
+  const h = await fetch('/api/health').then(r => r.json());
+  const badge = $('llm-badge');
+  if (h.llm_configured) {
+    badge.innerHTML = `<span class="badge-dot"></span>${h.llm_model}`;
+    badge.className = 'badge badge-ok';
+  } else {
+    badge.innerHTML = `<span class="badge-dot"></span>未配 LLM`;
+    badge.className = 'badge badge-err';
+  }
+
+  const ds = h.data_source;
+  $('datasource-summary').textContent = `${ds.label || ds.filename} · ${ds.rows.toLocaleString()} 行 × ${ds.columns} 列`;
+
+  $('question-input').disabled = false;
+  $('send-btn').disabled = false;
+  $('question-input').focus();
+}
+
+function enableSessionReport() {
+  // 第一个 AI 回答后启用
+  const btn = $('session-report-btn');
+  if (btn && sessionId) {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50');
+  }
+}
+
+async function sendQuestion(question) {
+  if (busy || !question.trim()) return;
+  busy = true;
+
+  $('empty-hint')?.remove();
+  appendUserMessage(question);
+  $('question-input').value = '';
+  setInputEnabled(false);
+
+  const aiMsg = appendAIMessage();
+
+  const formData = new FormData();
+  formData.append('question', question);
+  if (sessionId) formData.append('session_id', sessionId);
+
+  try {
+    const r = await fetch('/api/analyze', { method: 'POST', body: formData });
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          handleEvent(evt, aiMsg);
+        } catch (e) { console.error('parse', e, line); }
+      }
+    }
+  } catch (e) {
+    aiMsg.querySelector('.ai-status').innerHTML = `<span class="st-err">${IC.alert} 网络错误:${e.message}</span>`;
+  }
+
+  busy = false;
+  setInputEnabled(true);
+  $('question-input').focus();
+  scrollToBottom();
+}
+
+function handleEvent(evt, aiMsg) {
+  const statusEl = aiMsg.querySelector('.ai-status');
+  const codeEl = aiMsg.querySelector('.ai-code pre');
+  const resultEl = aiMsg.querySelector('.ai-result');
+  const analysisEl = aiMsg.querySelector('.ai-analysis');
+
+  if (evt.event === 'session') {
+    sessionId = evt.session_id;
+    enableSessionReport();
+  } else if (evt.event === 'start') {
+    statusEl.innerHTML = `<span class="st-running">${IC.spinner} 思考中</span>`;
+  } else if (evt.event === 'code') {
+    codeEl.textContent = evt.code;
+    aiMsg.querySelector('.ai-code').classList.remove('hidden');
+    statusEl.innerHTML = `<span class="st-running">${IC.spinner} 执行中</span>`;
+  } else if (evt.event === 'retry') {
+    statusEl.innerHTML = `<span class="st-warn">${IC.alert} 第 ${evt.attempt} 次重试 · ${evt.last_error}</span>`;
+  } else if (evt.event === 'result') {
+    renderResult(evt.data, resultEl);
+    aiMsg._resultData = evt.data;
+    aiMsg._code = evt.code;
+    aiMsg._question = evt.question;
+    statusEl.innerHTML = `<span class="st-ok">${IC.check} ${evt.data.row_count} 行</span>`;
+    const insightBtn = aiMsg.querySelector('.ai-insight-btn');
+    const chartBtn = aiMsg.querySelector('.ai-chart-btn');
+    const reportBtn = aiMsg.querySelector('.ai-report-btn');
+    if (insightBtn) insightBtn.classList.remove('hidden');
+    if (chartBtn) chartBtn.classList.remove('hidden');
+    if (reportBtn) reportBtn.classList.remove('hidden');
+  } else if (evt.event === 'analyzing') {
+    statusEl.innerHTML = `<span class="st-running">${IC.spinner} 分析中</span>`;
+  } else if (evt.event === 'analysis') {
+    renderAnalysis(evt.data, analysisEl);
+    statusEl.innerHTML = `<span class="st-ok">${IC.check} 完成</span>`;
+  } else if (evt.event === 'error') {
+    statusEl.innerHTML = `<span class="st-err">${IC.alert} ${evt.message}</span>`;
+  } else if (evt.event === 'done') {
+    // 完成
+  }
+}
+
+function renderAnalysis(data, container) {
+  const { insight, suggestions = [] } = data;
+  let html = '';
+  if (insight) {
+    html += `<div class="insight-card">
+      <p class="insight-title">${IC.bulb} AI 洞察</p>
+      <p class="insight-body insight-text">${escapeHtml(insight)}</p>
+    </div>`;
+  }
+  if (suggestions.length > 0) {
+    html += `<div class="suggest-box">
+      <p class="suggest-title">${IC.sparkles} 你可以接着问:</p>`;
+    suggestions.forEach(s => {
+      html += `<button class="suggestion-btn" data-q="${escapeHtml(s)}">${escapeHtml(s)}</button>`;
+    });
+    html += `</div>`;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.suggestion-btn').forEach(btn => {
+    btn.addEventListener('click', () => sendQuestion(btn.dataset.q));
+  });
+}
+
+function renderResult(data, container) {
+  const { columns, rows, row_count } = data;
+  let html = `<p class="result-meta">共 ${row_count} 行${rows.length < row_count ? ` · 展示前 ${rows.length} 行` : ''} · <span class="muted">数字保留 2 位小数,率/占比自动加 %</span></p>`;
+  html += `<div class="result-card"><table class="result-table w-full">`;
+  html += '<thead><tr>';
+  columns.forEach(c => html += `<th>${escapeHtml(c)}</th>`);
+  html += '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>';
+    row.forEach((cell, i) => {
+      html += `<td>${formatCell(cell, columns[i])}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+// 智能格式化单元格
+// - 率/同比/占比 → 百分数 2 位(原值 * 100 + %)
+// - ID/编号 → 整数
+// - 数字(销量/金额/数量/同期/sum/cur/prev/元/值) → 2 位小数 + 千分位
+// - 其他 → 字符串原样
+function formatCell(value, columnName) {
+  if (value === null || value === undefined || value === '') return value;
+  const s = String(value);
+  const col = (columnName || '').toLowerCase();
+  const num = parseFloat(s);
+  if (isNaN(num) || !isFinite(num)) return escapeHtml(s);
+
+  // 整数 ID/编号(不格式化千分位)
+  if (/编号$|员工编号|id$|代码$/.test(col)) {
+    return num.toFixed(0);
+  }
+
+  // 率/同比/占比/份额(含英文 rate/ratio/pct/growth)→ 百分数 2 位(原值 * 100 + %)
+  // 约定:后端 prompt 已强制 LLM 输出小数比率(0.99=99%),这里统一 ×100 显示
+  if (/率|同比|占比|份额|百分数|百分比|percent|rate|ratio|pct|growth|%\s*$/.test(col)) {
+    return (num * 100).toFixed(2) + '%';
+  }
+
+  // 数字字段(销量/金额/数量/同期/cur/prev/sum/万元/元/值/额度)→ 2 位小数 + 千分位
+  if (/销量|金额|数量|同期|本期|上期|sum|cur|prev|万元|元$|值$|额度|销售|规模/.test(col)) {
+    return num.toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  return escapeHtml(s);
+}
+
+function appendUserMessage(text) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-user msg-enter';
+  wrap.innerHTML = `
+    <div class="bubble-user">${escapeHtml(text)}</div>
+  `;
+  $('messages').appendChild(wrap);
+  scrollToBottom();
+}
+
+function appendAIMessage() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-ai msg-enter';
+  const msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  wrap.innerHTML = `
+    <div class="ai-card">
+      <div class="ai-card-head">
+        <div class="ai-avatar">${IC.logo}</div>
+        <span class="ai-name">DataAgent</span>
+        <span class="ai-status st-neutral">${IC.spinner} 准备中</span>
+      </div>
+      <div class="ai-card-body">
+        <details class="ai-code hidden">
+          <summary>${IC.code} 查看代码</summary>
+          <pre class="code-block"></pre>
+        </details>
+        <div class="ai-result">
+          <p class="thinking st-neutral">${IC.spinner} 等待响应...</p>
+        </div>
+        <div class="action-row">
+          <button class="action-btn ai-insight-btn hidden">${IC.bulb} 获取 AI 洞察 + 后续问题建议</button>
+          <button class="action-btn ai-chart-btn hidden">${IC.chart} 生成图表</button>
+          <button class="action-btn ai-report-btn hidden">${IC.file} 生成分析报告</button>
+        </div>
+        <div class="ai-chart"></div>
+        <div class="ai-analysis"></div>
+        <div class="ai-report"></div>
+      </div>
+    </div>
+  `;
+  $('messages').appendChild(wrap);
+  scrollToBottom();
+  wrap.querySelector('.ai-insight-btn').addEventListener('click', () => loadInsight(wrap));
+  wrap.querySelector('.ai-chart-btn').addEventListener('click', () => loadChart(wrap, msgId));
+  wrap.querySelector('.ai-report-btn').addEventListener('click', () => loadReport(wrap));
+  return wrap;
+}
+
+async function loadInsight(aiMsg) {
+  const btn = aiMsg.querySelector('.ai-insight-btn');
+  const statusEl = aiMsg.querySelector('.ai-status');
+  if (!aiMsg._resultData) return;
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="st-running">${IC.spinner} 分析中</span>`;
+  statusEl.innerHTML = `<span class="st-running">${IC.spinner} 分析中</span>`;
+
+  try {
+    const fd = new FormData();
+    fd.append('question', aiMsg._question);
+    fd.append('code', aiMsg._code);
+    fd.append('result_json', JSON.stringify(aiMsg._resultData));
+    if (sessionId) fd.append('session_id', sessionId);
+    const r = await fetch('/api/analyze_detail', { method: 'POST', body: fd });
+    const data = await r.json();
+    renderAnalysis(data, aiMsg.querySelector('.ai-analysis'));
+    btn.innerHTML = `${IC.check} 已生成`;
+    btn.classList.add('opacity-60');
+    statusEl.innerHTML = `<span class="st-ok">${IC.check} 完成</span>`;
+  } catch (e) {
+    btn.innerHTML = `${IC.alert} 失败,重试`;
+    btn.disabled = false;
+    statusEl.innerHTML = `<span class="st-err">${IC.alert} ${e.message}</span>`;
+  }
+}
+
+async function loadReport(aiMsg) {
+  const btn = aiMsg.querySelector('.ai-report-btn');
+  const statusEl = aiMsg.querySelector('.ai-status');
+  const reportEl = aiMsg.querySelector('.ai-report');
+  if (!aiMsg._resultData) return;
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="st-running">${IC.spinner} 撰写中</span>`;
+  statusEl.innerHTML = `<span class="st-running">${IC.spinner} 撰写报告</span>`;
+
+  try {
+    // 如果已有 insight,把它也带上,让 LLM 整合到报告里
+    let insight = aiMsg._insight || '';
+    if (!insight) {
+      const insightEl = aiMsg.querySelector('.ai-analysis .insight-text');
+      if (insightEl) insight = insightEl.textContent || '';
+    }
+
+    const fd = new FormData();
+    fd.append('question', aiMsg._question);
+    fd.append('result_json', JSON.stringify(aiMsg._resultData));
+    if (insight) fd.append('insight', insight);
+    if (sessionId) fd.append('session_id', sessionId);
+
+    const r = await fetch('/api/report', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+
+    // 渲染 markdown(白名单 sanitize,防 LLM 注入 HTML/脚本)
+    const html = safeMarkdown(data.report);
+    const filename = `report_${Date.now()}.md`;
+    reportEl.innerHTML = `
+      <div class="report-card">
+        <div class="report-card-head">
+          <span class="report-label">${IC.file} 分析报告(可下载 markdown)</span>
+          <div class="modal-actions">
+            <button class="btn-ghost" data-action="copy-md">${IC.copy} 复制</button>
+            <button class="btn-grad" data-action="download-md" data-filename="${filename}">${IC.download} 下载 .md</button>
+          </div>
+        </div>
+        <div class="report-card-body report-content">${html}</div>
+      </div>
+    `;
+    // 缓存
+    aiMsg._report = data.report;
+    aiMsg._reportFilename = filename;
+    // 绑定按钮
+    reportEl.querySelector('[data-action="copy-md"]').addEventListener('click', () => {
+      navigator.clipboard.writeText(data.report).then(() => {
+        btn.innerHTML = `${IC.check} 已复制`;
+      });
+    });
+    reportEl.querySelector('[data-action="download-md"]').addEventListener('click', () => {
+      downloadMarkdown(data.report, filename);
+    });
+
+    btn.innerHTML = `${IC.check} 已生成`;
+    btn.classList.add('opacity-60');
+    statusEl.innerHTML = `<span class="st-ok">${IC.check} 完成</span>`;
+  } catch (e) {
+    btn.innerHTML = `${IC.alert} 失败,重试`;
+    btn.disabled = false;
+    statusEl.innerHTML = `<span class="st-err">${IC.alert} ${e.message}</span>`;
+  }
+}
+
+function downloadMarkdown(content, filename) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function loadChart(aiMsg, msgId) {
+  const btn = aiMsg.querySelector('.ai-chart-btn');
+  const statusEl = aiMsg.querySelector('.ai-status');
+  const chartEl = aiMsg.querySelector('.ai-chart');
+  if (!aiMsg._resultData) return;
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="st-running">${IC.spinner} 选图中</span>`;
+  statusEl.innerHTML = `<span class="st-running">${IC.spinner} 选图表类型</span>`;
+
+  try {
+    const fd = new FormData();
+    fd.append('question', aiMsg._question);
+    fd.append('result_json', JSON.stringify(aiMsg._resultData));
+    const r = await fetch('/api/chart', { method: 'POST', body: fd });
+    const cfg = await r.json();
+
+    const containerId = 'chart_' + msgId;
+    chartEl.innerHTML = `<div class="chart-card">
+      <p class="chart-title">${IC.chart} ${escapeHtml(cfg.title || '图表')}</p>
+      <div id="${containerId}" class="chart-container"></div>
+    </div>`;
+
+    requestAnimationFrame(() => {
+      const dom = document.getElementById(containerId);
+      if (!dom) return;
+      const old = chartInstances.get(containerId);
+      if (old) old.dispose();
+      const chart = echarts.init(dom);
+      chart.setOption(buildEChartsOption(cfg, aiMsg._resultData));
+      chartInstances.set(containerId, chart);
+    });
+
+    btn.innerHTML = `${IC.check} 已生成图表`;
+    btn.classList.add('opacity-60');
+    statusEl.innerHTML = `<span class="st-ok">${IC.check} 完成</span>`;
+  } catch (e) {
+    btn.innerHTML = `${IC.alert} 失败,重试`;
+    btn.disabled = false;
+    statusEl.innerHTML = `<span class="st-err">${IC.alert} ${e.message}</span>`;
+  }
+}
+
+function parseNum(v) {
+  if (v === null || v === undefined || v === '') return NaN;
+  if (typeof v === 'number') return isFinite(v) ? v : NaN;
+  const s = String(v).replace(/,/g, '').replace(/%/g, '').trim();
+  if (!s) return NaN;
+  const n = parseFloat(s);
+  return isFinite(n) ? n : NaN;
+}
+
+function isRateCol(name) {
+  return /率|同比|占比|份额|百分数|百分比|percent|rate|ratio|pct|growth|%\s*$/.test((name || '').toLowerCase());
+}
+
+function buildEChartsOption(cfg, data) {
+  const { type, x, y, x_label, y_label, title } = cfg;
+  const { columns, rows } = data;
+  let xIdx = columns.indexOf(x);
+  let yIdx = columns.indexOf(y);
+
+  // 防御性兜底:后端已校验,这里再兜一层(例如旧缓存数据)
+  const numIdx = columns.map((c, i) =>
+    rows.filter(r => !isNaN(parseNum(r[i]))).length >= Math.max(1, rows.length / 2) ? i : -1
+  ).filter(i => i >= 0);
+  const catIdx = columns.map((c, i) => (numIdx.includes(i) ? -1 : i)).filter(i => i >= 0);
+
+  // LLM 把 x/y 整体放反(数值列当 x、文本列当 y)时先交换,保留 LLM 的列选择意图
+  if (numIdx.includes(xIdx) && !numIdx.includes(yIdx)) {
+    [xIdx, yIdx] = [yIdx, xIdx];
+  }
+
+  // y 必须是数值列(优先率/占比类)
+  if (!numIdx.includes(yIdx)) {
+    const rateIdx = numIdx.find(i => isRateCol(columns[i]));
+    yIdx = (rateIdx !== undefined ? rateIdx : numIdx[0]) ?? -1;
+  }
+  if (type === 'scatter') {
+    // 散点需要两个不同的数值列
+    if (xIdx === yIdx || !numIdx.includes(xIdx)) {
+      xIdx = numIdx.find(i => i !== yIdx) ?? -1;
+    }
+  } else {
+    // 非散点:x 应为类别列(防 LLM 把 x/y 放反,如数值列当 x)
+    if (!catIdx.includes(xIdx) || xIdx === yIdx) {
+      xIdx = catIdx.length ? catIdx[0] : (numIdx.find(i => i !== yIdx) ?? -1);
+    }
+  }
+  if (xIdx < 0 || yIdx < 0) {
+    return { title: { text: '字段映射错误:' + (columns.join(',')), left: 'center' } };
+  }
+
+  const categories = rows.map(r => r[xIdx]);
+  const isRateY = isRateCol(columns[yIdx]);
+  const yName = y_label || (isRateY ? columns[yIdx] + '(%)' : columns[yIdx]);
+  const values = rows.map(r => {
+    const n = parseNum(r[yIdx]);
+    if (isNaN(n)) return 0;
+    return isRateY ? n * 100 : n;
+  });
+
+  const baseOption = {
+    title: { text: title || `${yName} by ${x}`, left: 'center', textStyle: { fontSize: 14 } },
+    tooltip: { trigger: 'axis' },
+    grid: { left: 60, right: 30, top: 50, bottom: 80 },
+    xAxis: {
+      type: 'category', data: categories,
+      axisLabel: { rotate: categories.length > 8 ? 45 : 0, fontSize: 11 },
+    },
+    yAxis: { type: 'value', name: yName, nameTextStyle: { fontSize: 11 } },
+  };
+
+  if (type === 'bar' || type === 'horizontal_bar') {
+    if (type === 'horizontal_bar') {
+      baseOption.xAxis = { type: 'value', name: x_label || x };
+      baseOption.yAxis = { type: 'category', data: categories, name: y_label || y };
+    }
+    return { ...baseOption, series: [{ type: 'bar', data: values, itemStyle: { color: '#3b82f6' }, label: { show: true, position: type === 'horizontal_bar' ? 'right' : 'top', fontSize: 10 } }] };
+  } else if (type === 'line') {
+    return { ...baseOption, series: [{ type: 'line', data: values, smooth: true, itemStyle: { color: '#3b82f6' }, areaStyle: { opacity: 0.2 } }] };
+  } else if (type === 'pie') {
+    const pieData = categories.map((c, i) => ({ name: c, value: values[i] })).filter(d => d.value > 0);
+    return {
+      title: baseOption.title,
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      series: [{ type: 'pie', radius: '60%', data: pieData, label: { fontSize: 11 } }]
+    };
+  } else if (type === 'scatter') {
+    // 散点图需要两个数值轴;跳过 x 非数值的行,全部不可用才退化为 bar
+    const scatterData = [];
+    for (let i = 0; i < categories.length; i++) {
+      const xv = parseNum(categories[i]);
+      if (!isNaN(xv)) scatterData.push([xv, values[i]]);
+    }
+    if (scatterData.length === 0) {
+      return { ...baseOption, series: [{ type: 'bar', data: values, itemStyle: { color: '#3b82f6' }, label: { show: true, position: 'top', fontSize: 10 } }] };
+    }
+    return {
+      title: baseOption.title,
+      tooltip: { trigger: 'item', formatter: p => `${x_label || columns[xIdx]}: ${p.value[0]}<br/>${yName}: ${p.value[1]}` },
+      xAxis: { type: 'value', name: x_label || columns[xIdx], nameTextStyle: { fontSize: 11 } },
+      yAxis: { type: 'value', name: yName, nameTextStyle: { fontSize: 11 } },
+      series: [{ type: 'scatter', data: scatterData, symbolSize: 12, itemStyle: { color: '#3b82f6' } }]
+    };
+  }
+  return { title: { text: '未知图表类型:' + type, left: 'center' } };
+}
+
+async function clearSession() {
+  if (!sessionId) {
+    $('messages').innerHTML = '';
+    $('messages').appendChild(makeEmptyHint());
+    return;
+  }
+  await fetch('/api/session/clear', { method: 'POST', body: new FormData([['session_id', sessionId]]) });
+  chartInstances.forEach(c => c.dispose());
+  chartInstances.clear();
+  $('messages').innerHTML = '';
+  $('messages').appendChild(makeEmptyHint());
+}
+
+function makeEmptyHint() {
+  const el = document.createElement('div');
+  el.id = 'empty-hint';
+  el.className = 'empty-hint';
+  el.innerHTML = `<div class="icon-box">${IC.msg}</div><p>对话已清空</p>`;
+  return el;
+}
+
+function scrollToBottom() {
+  const m = $('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+function setInputEnabled(en) {
+  $('question-input').disabled = !en;
+  $('send-btn').disabled = !en;
+  document.querySelectorAll('.example-btn').forEach(b => b.disabled = !en);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+$('send-btn').addEventListener('click', () => sendQuestion($('question-input').value));
+$('question-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendQuestion($('question-input').value); });
+$('clear-btn').addEventListener('click', clearSession);
+$('session-report-btn').addEventListener('click', openSessionModal);
+$('session-modal-close').addEventListener('click', closeSessionModal);
+$('session-modal').addEventListener('click', e => {
+  if (e.target.id === 'session-modal') closeSessionModal();
+});
+$('admin-btn').addEventListener('click', openAdminModal);
+$('admin-close').addEventListener('click', closeAdminModal);
+$('admin-save').addEventListener('click', saveAdminRules);
+$('admin-reload').addEventListener('click', loadAdminRules);
+$('admin-modal').addEventListener('click', e => {
+  if (e.target.id === 'admin-modal') closeAdminModal();
+});
+document.querySelectorAll('.example-btn').forEach(btn => {
+  btn.addEventListener('click', () => sendQuestion(btn.dataset.q));
+});
+
+// Session 报告弹窗
+async function openSessionModal() {
+  if (!sessionId) return;
+  $('session-modal').classList.remove('hidden');
+  $('session-modal-body').innerHTML = `<p class="modal-loading">${IC.spinner} 正在综合所有分析...</p>`;
+  $('session-modal-download').disabled = true;
+
+  try {
+    const fd = new FormData();
+    fd.append('session_id', sessionId);
+    const r = await fetch('/api/report_session', { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+
+    const html = safeMarkdown(data.report);
+    $('session-modal-body').innerHTML = `<div class="report-content">${html}</div>`;
+
+    $('session-modal-download').disabled = false;
+    $('session-modal-download').onclick = () => {
+      const filename = `session_report_${Date.now()}.md`;
+      downloadMarkdown(data.report, filename);
+    };
+  } catch (e) {
+    $('session-modal-body').innerHTML = `<p class="modal-error">${IC.alert} ${e.message}</p>`;
+  }
+}
+
+function closeSessionModal() {
+  $('session-modal').classList.add('hidden');
+}
+
+// 后台配置 - 业务规则(结构化表单)
+let _adminRules = { filters: [], field_preferences: {}, industry_specific: {}, output_style: { format_rules: [] }, calculation_rules: { rules: [] } };
+
+async function openAdminModal() {
+  $('admin-modal').classList.remove('hidden');
+  $('admin-status').innerHTML = `<span class="st-neutral">${IC.spinner} 加载中...</span>`;
+  await loadAdminRules();
+}
+
+function closeAdminModal() {
+  $('admin-modal').classList.add('hidden');
+}
+
+async function loadAdminRules() {
+  $('admin-status').innerHTML = `<span class="st-neutral">${IC.spinner} 加载规则...</span>`;
+  try {
+    const r = await fetch('/api/admin/rules');
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    _adminRules = JSON.parse(data.content);
+    renderAdminForm();
+    $('admin-status').innerHTML = `<span class="st-ok">${IC.check} 已加载:${data.path} · ${(_adminRules.filters || []).length} 条过滤规则</span>`;
+  } catch (e) {
+    $('admin-status').innerHTML = `<span class="st-err">${IC.alert} 加载失败:${e.message}</span>`;
+  }
+}
+
+function renderAdminForm() {
+  const r = _adminRules;
+  const filters = r.filters || [];
+  const fp = r.field_preferences || {};
+  const ind = r.industry_specific || {};
+  const out = r.output_style || {};
+
+  let html = '';
+
+  // === 过滤规则 ===
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.filter} 过滤规则 <span class="rule-sub">(每条规则 LLM 必看)</span></h3>
+        <button id="filter-add" class="btn-grad">${IC.plus} 添加规则</button>
+      </div>
+      <div class="rule-stack">
+  `;
+  filters.forEach((f, i) => {
+    html += renderFilterRow(f, i);
+  });
+  if (filters.length === 0) {
+    html += `<p class="empty-note">还没有规则,点"添加规则"开始</p>`;
+  }
+  html += `</div></section>`;
+
+  // === 字段偏好 ===
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.target} 字段偏好 <span class="rule-sub">(告诉 LLM 哪些列是核心指标,哪些是噪音)</span></h3>
+      </div>
+      <div class="rule-body">
+        <div>
+          <label class="field-label">核心指标(逗号分隔)</label>
+          <input data-bind="fp.primary" value="${(fp.primary_metrics || []).join(', ')}" class="input-modern" placeholder="如:学术接受度, 同期_学术接受度">
+        </div>
+        <div>
+          <label class="field-label">次要指标</label>
+          <input data-bind="fp.secondary" value="${(fp.secondary_metrics || []).join(', ')}" class="input-modern" placeholder="如:接受度指数">
+        </div>
+        <div>
+          <label class="field-label">可忽略字段(噪音)</label>
+          <input data-bind="fp.ignore" value="${(fp.ignore_columns || []).join(', ')}" class="input-modern" placeholder="如:医院ID, 区县, 市">
+        </div>
+      </div>
+    </section>
+  `;
+
+  // === 行业背景 ===
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.building} 行业背景 <span class="rule-sub">(LLM 知道场景,回答更贴业务)</span></h3>
+      </div>
+      <div class="rule-body">
+        <div>
+          <label class="field-label">行业</label>
+          <input data-bind="ind.industry" value="${escapeHtml(ind.current_industry || '')}" class="input-modern" placeholder="如:医药 SFE">
+        </div>
+        <div>
+          <label class="field-label">业务目标</label>
+          <input data-bind="ind.objective" value="${escapeHtml(ind.business_objective || '')}" class="input-modern" placeholder="如:代表学术活动覆盖与增长">
+        </div>
+        <div>
+          <label class="field-label">合规约束(每行一条)</label>
+          <textarea data-bind="ind.compliance" rows="2" class="input-modern" placeholder="如:《医药代表管理办法》2026.8.1 施行">${escapeHtml((ind.compliance_constraints || []).join('\n'))}</textarea>
+        </div>
+      </div>
+    </section>
+  `;
+
+  // === 输出格式(全局) ===
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.palette} 输出格式 <span class="rule-sub">(全局默认)</span></h3>
+      </div>
+      <div class="rule-body rule-grid-2">
+        <div>
+          <label class="field-label">增长率显示</label>
+          <select data-bind="out.rate_format" class="input-modern">
+            <option value="rate_pct" ${out.number_format === 'rate_pct' || !out.number_format ? 'selected' : ''}>百分数 (12,545.00%)</option>
+            <option value="decimal" ${out.number_format === 'decimal' ? 'selected' : ''}>小数 (125.45)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">小数位数(全局)</label>
+          <input type="number" data-bind="out.decimals" value="${out.decimal_places || 2}" min="0" max="6" class="input-modern">
+        </div>
+        <label class="chk-label">
+          <input type="checkbox" data-bind="out.thousand" id="cb-thousand" ${out.thousand_separator !== false ? 'checked' : ''}>
+          数字加千分位 (1,234.56)
+        </label>
+        <label class="chk-label">
+          <input type="checkbox" data-bind="out.chinese" id="cb-chinese" ${out.use_chinese_labels !== false ? 'checked' : ''}>
+          使用中文列名
+        </label>
+      </div>
+    </section>
+  `;
+
+  // === 列特定格式规则(独立 section,放在输出格式下面) ===
+  const formatRules = out.format_rules || [];
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.list} 列特定格式规则 <span class="rule-sub">(覆盖全局默认,可添加多条)</span></h3>
+        <button id="format-rule-add" class="btn-grad">${IC.plus} 添加格式规则</button>
+      </div>
+      <div class="rule-stack">
+  `;
+  formatRules.forEach((fr, i) => {
+    html += renderFormatRuleRow(fr, i);
+  });
+  if (formatRules.length === 0) {
+    html += `<p class="empty-note">没有格式规则,所有列用全局默认</p>`;
+  }
+  html += `</div></section>`;
+
+  // === 指标计算规则 ===
+  const calcRules = (_adminRules.calculation_rules && _adminRules.calculation_rules.rules) || [];
+  html += `
+    <section class="rule-section">
+      <div class="rule-section-head">
+        <h3 class="rule-title">${IC.calc} 指标计算规则 <span class="rule-sub">(配置 LLM 怎么算同比/达成/各种衍生指标)</span></h3>
+        <button id="calc-rule-add" class="btn-grad">${IC.plus} 添加计算规则</button>
+      </div>
+      <div class="rule-stack">
+  `;
+  calcRules.forEach((r, i) => {
+    html += renderCalcRuleRow(r, i);
+  });
+  if (calcRules.length === 0) {
+    html += `<p class="empty-note">还没有计算规则,点"添加计算规则"开始</p>`;
+  }
+  html += `</div></section>`;
+
+  $('admin-form').innerHTML = html;
+
+  // 绑定添加规则按钮
+  $('filter-add').addEventListener('click', () => {
+    _adminRules.filters = _adminRules.filters || [];
+    _adminRules.filters.push({ name: '', description: '', priority: 'medium' });
+    renderAdminForm();
+  });
+
+  // 绑定每行的删除/更新
+  document.querySelectorAll('.filter-row').forEach((row, i) => {
+    row.querySelector('.filter-del').addEventListener('click', () => {
+      _adminRules.filters.splice(i, 1);
+      renderAdminForm();
+    });
+  });
+
+  // 绑定 format_rule 添加/删除
+  $('format-rule-add')?.addEventListener('click', () => {
+    _adminRules.output_style = _adminRules.output_style || {};
+    _adminRules.output_style.format_rules = _adminRules.output_style.format_rules || [];
+    _adminRules.output_style.format_rules.push({
+      name: '',
+      apply_to_columns: [],
+      decimal_places: 2,
+      thousand_separator: true,
+      prefix: '',
+      suffix: '',
+      multiplier: 1,
+      description: '',
+    });
+    renderAdminForm();
+  });
+  document.querySelectorAll('.format-rule-del').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.i, 10);
+      _adminRules.output_style.format_rules.splice(i, 1);
+      renderAdminForm();
+    });
+  });
+
+  // 绑定 calc_rule 添加/删除
+  $('calc-rule-add')?.addEventListener('click', () => {
+    _adminRules.calculation_rules = _adminRules.calculation_rules || { rules: [] };
+    _adminRules.calculation_rules.rules = _adminRules.calculation_rules.rules || [];
+    _adminRules.calculation_rules.rules.push({
+      name: '',
+      formula: '',
+      description: '',
+      category: 'growth',
+      output_format: 'rate_pct',
+      priority: 'medium',
+    });
+    renderAdminForm();
+  });
+  document.querySelectorAll('.calc-rule-del').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.i, 10);
+      _adminRules.calculation_rules.rules.splice(i, 1);
+      renderAdminForm();
+    });
+  });
+}
+
+function renderFilterRow(f, i) {
+  const pri = f.priority || 'medium';
+  return `
+    <div class="rule-row filter-row" data-index="${i}">
+      <div class="form-grid">
+        <div class="c3">
+          <label class="field-label">名称</label>
+          <input data-filter="${i}.name" value="${escapeHtml(f.name || '')}" class="input-modern" placeholder="如:排除离职">
+        </div>
+        <div class="c3">
+          <label class="field-label">优先级</label>
+          <select data-filter="${i}.priority" class="input-modern">
+            <option value="high" ${pri === 'high' ? 'selected' : ''}>高(必做)</option>
+            <option value="medium" ${pri === 'medium' ? 'selected' : ''}>中(默认)</option>
+            <option value="low" ${pri === 'low' ? 'selected' : ''}>低(建议)</option>
+          </select>
+        </div>
+        <div class="c5">
+          <label class="field-label">规则描述(LLM 看到的内容)</label>
+          <input data-filter="${i}.description" value="${escapeHtml(f.description || '')}" class="input-modern" placeholder="如:NEW代表列含'离职'或'转岗'的代表不要排除">
+        </div>
+        <div class="c1 del-cell">
+          <button class="icon-del filter-del" title="删除">${IC.trash}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderFormatRuleRow(fr, i) {
+  const cols = (fr.apply_to_columns || []).join(', ');
+  return `
+    <div class="rule-row format-rule-row" data-index="${i}">
+      <div class="form-grid">
+        <div class="c2">
+          <label class="field-label">规则名</label>
+          <input data-fr="${i}.name" value="${escapeHtml(fr.name || '')}" class="input-modern" placeholder="如:金额">
+        </div>
+        <div class="c4">
+          <label class="field-label">适用列(逗号分隔)</label>
+          <input data-fr="${i}.columns" value="${escapeHtml(cols)}" class="input-modern" placeholder="如:销售额, 金额">
+        </div>
+        <div class="c1">
+          <label class="field-label">小数位</label>
+          <input type="number" data-fr="${i}.decimals" value="${fr.decimal_places ?? 2}" min="0" max="6" class="input-modern">
+        </div>
+        <div class="c1 chk-cell">
+          <label class="chk-label">
+            <input type="checkbox" data-fr="${i}.thousand" ${fr.thousand_separator !== false ? 'checked' : ''}> 千分位
+          </label>
+        </div>
+        <div class="c1">
+          <label class="field-label">前缀</label>
+          <input data-fr="${i}.prefix" value="${escapeHtml(fr.prefix || '')}" class="input-modern" placeholder="¥">
+        </div>
+        <div class="c1">
+          <label class="field-label">后缀</label>
+          <input data-fr="${i}.suffix" value="${escapeHtml(fr.suffix || '')}" class="input-modern" placeholder="%">
+        </div>
+        <div class="c1">
+          <label class="field-label">倍数</label>
+          <input type="number" data-fr="${i}.multiplier" value="${fr.multiplier ?? 1}" step="0.01" class="input-modern">
+        </div>
+        <div class="c1 del-cell">
+          <button class="icon-del format-rule-del" data-i="${i}" title="删除">${IC.trash}</button>
+        </div>
+      </div>
+      <div class="row-desc">
+        <input data-fr="${i}.description" value="${escapeHtml(fr.description || '')}" class="input-modern" placeholder="说明(可选)">
+      </div>
+    </div>
+  `;
+}
+
+function renderCalcRuleRow(r, i) {
+  const pri = r.priority || 'medium';
+  const cat = r.category || 'growth';
+  const outF = r.output_format || 'rate_pct';
+  return `
+    <div class="rule-row calc-rule-row" data-index="${i}">
+      <div class="form-grid">
+        <div class="c3">
+          <label class="field-label">规则名</label>
+          <input data-cr="${i}.name" value="${escapeHtml(r.name || '')}" class="input-modern" placeholder="如:同比增长率">
+        </div>
+        <div class="c4">
+          <label class="field-label">公式(pandas 表达式)</label>
+          <input data-cr="${i}.formula" value="${escapeHtml(r.formula || '')}" class="input-modern font-mono" placeholder="(cur - prev) / prev">
+        </div>
+        <div class="c1">
+          <label class="field-label">分类</label>
+          <select data-cr="${i}.category" class="input-modern">
+            <option value="growth" ${cat === 'growth' ? 'selected' : ''}>growth</option>
+            <option value="achievement" ${cat === 'achievement' ? 'selected' : ''}>achievement</option>
+            <option value="rate" ${cat === 'rate' ? 'selected' : ''}>rate</option>
+            <option value="custom" ${cat === 'custom' ? 'selected' : ''}>custom</option>
+          </select>
+        </div>
+        <div class="c1">
+          <label class="field-label">输出</label>
+          <select data-cr="${i}.output_format" class="input-modern">
+            <option value="rate_pct" ${outF === 'rate_pct' ? 'selected' : ''}>百分数</option>
+            <option value="decimal" ${outF === 'decimal' ? 'selected' : ''}>小数</option>
+            <option value="number" ${outF === 'number' ? 'selected' : ''}>整数</option>
+          </select>
+        </div>
+        <div class="c2">
+          <label class="field-label">优先级</label>
+          <select data-cr="${i}.priority" class="input-modern">
+            <option value="high" ${pri === 'high' ? 'selected' : ''}>高</option>
+            <option value="medium" ${pri === 'medium' ? 'selected' : ''}>中</option>
+            <option value="low" ${pri === 'low' ? 'selected' : ''}>低</option>
+          </select>
+        </div>
+        <div class="c1 del-cell">
+          <button class="icon-del calc-rule-del" data-i="${i}" title="删除">${IC.trash}</button>
+        </div>
+      </div>
+      <div class="row-desc">
+        <input data-cr="${i}.description" value="${escapeHtml(r.description || '')}" class="input-modern" placeholder="说明(可选,LLM 看到的内容)">
+      </div>
+    </div>
+  `;
+}
+
+function collectAdminForm() {
+  // 收集 filters
+  document.querySelectorAll('.filter-row').forEach((row, i) => {
+    const name = row.querySelector(`[data-filter="${i}.name"]`)?.value || '';
+    const desc = row.querySelector(`[data-filter="${i}.description"]`)?.value || '';
+    const pri = row.querySelector(`[data-filter="${i}.priority"]`)?.value || 'medium';
+    if (!_adminRules.filters) _adminRules.filters = [];
+    _adminRules.filters[i] = { name, description: desc, priority: pri };
+  });
+
+  // 收集字段偏好
+  if (!_adminRules.field_preferences) _adminRules.field_preferences = {};
+  const fp = _adminRules.field_preferences;
+  fp.primary_metrics = ($('admin-form').querySelector('[data-bind="fp.primary"]')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  fp.secondary_metrics = ($('admin-form').querySelector('[data-bind="fp.secondary"]')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  fp.ignore_columns = ($('admin-form').querySelector('[data-bind="fp.ignore"]')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+
+  // 收集行业背景
+  if (!_adminRules.industry_specific) _adminRules.industry_specific = {};
+  const ind = _adminRules.industry_specific;
+  ind.current_industry = $('admin-form').querySelector('[data-bind="ind.industry"]')?.value || '';
+  ind.business_objective = $('admin-form').querySelector('[data-bind="ind.objective"]')?.value || '';
+  ind.compliance_constraints = ($('admin-form').querySelector('[data-bind="ind.compliance"]')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+  // 收集输出格式
+  if (!_adminRules.output_style) _adminRules.output_style = {};
+  const out = _adminRules.output_style;
+  out.number_format = $('admin-form').querySelector('[data-bind="out.rate_format"]')?.value || 'rate_pct';
+  out.decimal_places = parseInt($('admin-form').querySelector('[data-bind="out.decimals"]')?.value || '2');
+  out.thousand_separator = $('admin-form').querySelector('[data-bind="out.thousand"]')?.checked || false;
+  out.use_chinese_labels = $('admin-form').querySelector('[data-bind="out.chinese"]')?.checked || false;
+
+  // 收集列特定格式规则
+  out.format_rules = out.format_rules || [];
+  const fmtRows = document.querySelectorAll('.format-rule-row');
+  out.format_rules = []; // 清空后重写
+  fmtRows.forEach((row, i) => {
+    const name = row.querySelector(`[data-fr="${i}.name"]`)?.value?.trim() || '';
+    const colsStr = row.querySelector(`[data-fr="${i}.columns"]`)?.value || '';
+    const cols = colsStr.split(',').map(s => s.trim()).filter(Boolean);
+    const dec = parseInt(row.querySelector(`[data-fr="${i}.decimals"]`)?.value || '2');
+    const thou = row.querySelector(`[data-fr="${i}.thousand"]`)?.checked !== false;
+    const prefix = row.querySelector(`[data-fr="${i}.prefix"]`)?.value || '';
+    const suffix = row.querySelector(`[data-fr="${i}.suffix"]`)?.value || '';
+    const mult = parseFloat(row.querySelector(`[data-fr="${i}.multiplier"]`)?.value || '1');
+    const desc = row.querySelector(`[data-fr="${i}.description"]`)?.value || '';
+    // 跳过完全空的行
+    if (!name && cols.length === 0) return;
+    out.format_rules.push({
+      name, apply_to_columns: cols,
+      decimal_places: dec, thousand_separator: thou,
+      prefix, suffix, multiplier: mult, description: desc,
+    });
+  });
+
+  // 收集指标计算规则
+  if (!_adminRules.calculation_rules) _adminRules.calculation_rules = { rules: [] };
+  if (!_adminRules.calculation_rules.rules) _adminRules.calculation_rules.rules = [];
+  const calcRows = document.querySelectorAll('.calc-rule-row');
+  _adminRules.calculation_rules.rules = []; // 清空后重写
+  calcRows.forEach((row, i) => {
+    const name = row.querySelector(`[data-cr="${i}.name"]`)?.value?.trim() || '';
+    const formula = row.querySelector(`[data-cr="${i}.formula"]`)?.value?.trim() || '';
+    const desc = row.querySelector(`[data-cr="${i}.description"]`)?.value || '';
+    const category = row.querySelector(`[data-cr="${i}.category"]`)?.value || 'growth';
+    const outF = row.querySelector(`[data-cr="${i}.output_format"]`)?.value || 'rate_pct';
+    const pri = row.querySelector(`[data-cr="${i}.priority"]`)?.value || 'medium';
+    // 跳过完全空的行
+    if (!name && !formula) return;
+    _adminRules.calculation_rules.rules.push({
+      name, formula, description: desc,
+      category, output_format: outF, priority: pri,
+    });
+  });
+
+  // 保留 _version / _comment
+  return _adminRules;
+}
+
+async function saveAdminRules() {
+  const token = $('admin-token-input').value;
+  if (!token) {
+    $('admin-status').innerHTML = `<span class="st-err">${IC.alert} 请填写 Admin Token</span>`;
+    return;
+  }
+
+  const rules = collectAdminForm();
+  const content = JSON.stringify(rules, null, 2);
+
+  $('admin-status').innerHTML = `<span class="st-neutral">${IC.spinner} 保存中...</span>`;
+  $('admin-save').disabled = true;
+
+  try {
+    const fd = new FormData();
+    fd.append('content', content);
+    fd.append('token', token);
+    const r = await fetch('/api/admin/rules', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const err = await r.text();
+      throw new Error(err);
+    }
+    const data = await r.json();
+    $('admin-status').innerHTML = `<span class="st-ok">${IC.check} ${data.message}<br>路径:${data.path} · ${data.rules_count} 条过滤规则</span>`;
+  } catch (e) {
+    $('admin-status').innerHTML = `<span class="st-err">${IC.alert} 保存失败:${e.message}</span>`;
+  } finally {
+    $('admin-save').disabled = false;
+  }
+}
+
+// ============================================================
+// 记忆管理(用户习惯:自动学习 + 手动)
+// ============================================================
+let _memory = { _version: "1.0", habits: [] };
+
+async function openMemoryModal() {
+  $('memory-modal').classList.remove('hidden');
+  $('memory-status').innerHTML = `<span class="st-neutral">${IC.spinner} 加载中...</span>`;
+  await loadMemory();
+}
+
+function closeMemoryModal() {
+  $('memory-modal').classList.add('hidden');
+}
+
+async function loadMemory() {
+  $('memory-status').innerHTML = `<span class="st-neutral">${IC.spinner} 加载记忆...</span>`;
+  try {
+    const r = await fetch('/api/admin/memory');
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    _memory = JSON.parse(data.content);
+    if (!_memory.habits) _memory.habits = [];
+    renderMemoryForm();
+    $('memory-status').innerHTML = `<span class="st-ok">${IC.check} 已加载:${data.path} · ${_memory.habits.length} 条习惯</span>`;
+  } catch (e) {
+    $('memory-status').innerHTML = `<span class="st-err">${IC.alert} 加载失败:${e.message}</span>`;
+  }
+}
+
+function renderMemoryForm() {
+  const habits = _memory.habits || [];
+
+  let html = '';
+
+  if (habits.length === 0) {
+    html += `
+      <div class="empty-state">
+        <div class="icon-box">${IC.brain}</div>
+        <p class="m">还没有习惯记忆</p>
+        <p class="s">用几次后,agent 会自动从对话中学习;也可以点下方按钮手动加</p>
+      </div>
+    `;
+  } else {
+    // 列表头
+    html += `
+      <div class="mem-head">
+        <div class="c2">分类/键名</div>
+        <div class="c4">偏好值</div>
+        <div class="c2">置信度</div>
+        <div class="c2">来源/时间</div>
+        <div class="c1">来源</div>
+        <div class="c1">操作</div>
+      </div>
+    `;
+  }
+
+  habits.forEach((h, i) => {
+    html += renderMemoryRow(h, i);
+  });
+
+  html += `
+    <div class="mem-addbar">
+      <button id="memory-add" class="btn-grad">${IC.plus} 手动添加习惯</button>
+      <span class="hint">手动添加的标记为 Manual,不会影响自动学习</span>
+    </div>
+  `;
+
+  $('memory-form').innerHTML = html;
+
+  // 绑定添加按钮
+  $('memory-add').addEventListener('click', () => {
+    _memory.habits = _memory.habits || [];
+    _memory.habits.push({
+      key: '',
+      value: '',
+      category: 'general',
+      description: '',
+      confidence: 0.7,
+      source: 'manual',
+      evidence_count: 0,
+      learned_from: '(手动添加)',
+      created_at: new Date().toISOString().slice(0, 19),
+      updated_at: new Date().toISOString().slice(0, 19),
+    });
+    renderMemoryForm();
+  });
+
+  // 绑定删除按钮
+  document.querySelectorAll('.memory-row-del').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.i, 10);
+      _memory.habits.splice(i, 1);
+      renderMemoryForm();
+    });
+  });
+
+  // 绑定置信度数字 + slider 联动
+  document.querySelectorAll('[data-conf-slider]').forEach((slider) => {
+    slider.addEventListener('input', (e) => {
+      const i = e.target.dataset.i;
+      const numEl = document.querySelector(`[data-conf-num="${i}"]`);
+      if (numEl) numEl.value = e.target.value;
+    });
+  });
+}
+
+function renderMemoryRow(h, i) {
+  const conf = (h.confidence || 0.5).toFixed(2);
+  const source = h.source || 'auto';
+  const sourceBadge = source === 'manual'
+    ? '<span class="src-badge src-manual">Manual</span>'
+    : '<span class="src-badge src-auto">Auto</span>';
+
+  return `
+    <div class="rule-row memory-row" data-index="${i}">
+      <div class="form-grid">
+        <div class="c2 mem-key-col">
+          <select data-mem="${i}.category" class="input-modern">
+            <option value="chart" ${h.category === 'chart' ? 'selected' : ''}>chart</option>
+            <option value="filter" ${h.category === 'filter' ? 'selected' : ''}>filter</option>
+            <option value="metric" ${h.category === 'metric' ? 'selected' : ''}>metric</option>
+            <option value="format" ${h.category === 'format' ? 'selected' : ''}>format</option>
+            <option value="domain" ${h.category === 'domain' ? 'selected' : ''}>domain</option>
+            <option value="style" ${h.category === 'style' ? 'selected' : ''}>style</option>
+            <option value="general" ${!h.category || h.category === 'general' ? 'selected' : ''}>general</option>
+          </select>
+          <input data-mem="${i}.key" value="${escapeHtml(h.key || '')}" class="input-modern font-mono" placeholder="key(英文,稳定)">
+        </div>
+        <div class="c4 mem-val-col">
+          <input data-mem="${i}.value" value="${escapeHtml(h.value || '')}" class="input-modern" placeholder="具体可执行的值">
+          <input data-mem="${i}.description" value="${escapeHtml(h.description || '')}" class="input-modern input-sub" placeholder="一句话中文描述">
+        </div>
+        <div class="c2">
+          <div class="conf-row">
+            <input type="range" data-conf-slider="${i}" data-i="${i}" min="0" max="1" step="0.05" value="${h.confidence || 0.5}" class="conf-range">
+            <input type="number" data-conf-num="${i}" data-mem="${i}.confidence" min="0" max="1" step="0.05" value="${conf}" class="conf-num">
+          </div>
+          <div class="conf-evidence">${(h.evidence_count || 0)} 次证据</div>
+        </div>
+        <div class="c2 mem-meta">
+          <div class="mem-from" title="${escapeHtml(h.learned_from || '')}">${IC.pen} ${escapeHtml((h.learned_from || '').slice(0, 20))}</div>
+          <div class="mem-time">${IC.clock} ${escapeHtml((h.updated_at || '').slice(0, 16))}</div>
+        </div>
+        <div class="c1 src-cell">${sourceBadge}</div>
+        <div class="c1 del-cell">
+          <button class="icon-del memory-row-del" data-i="${i}" title="删除">${IC.trash}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function collectMemoryForm() {
+  // 从 form 收集到 _memory 对象
+  const habits = _memory.habits || [];
+  document.querySelectorAll('.memory-row').forEach((row, i) => {
+    const get = (suffix) => row.querySelector(`[data-mem="${i}.${suffix}"]`)?.value || '';
+    const h = habits[i] || (habits[i] = {});
+    h.category = get('category');
+    h.key = get('key').trim();
+    h.value = get('value').trim();
+    h.description = get('description').trim();
+    h.confidence = Math.max(0, Math.min(1, parseFloat(row.querySelector(`[data-mem="${i}.confidence"]`)?.value || 0.5)));
+    // 时间戳自动更新
+    h.updated_at = new Date().toISOString().slice(0, 19);
+  });
+  _memory.habits = habits.filter(h => h.key && h.value); // 空行不要
+  return _memory;
+}
+
+async function saveMemory() {
+  const token = $('memory-token-input').value;
+  if (!token) {
+    $('memory-status').innerHTML = `<span class="st-err">${IC.alert} 请填写 Admin Token</span>`;
+    return;
+  }
+
+  const mem = collectMemoryForm();
+  const content = JSON.stringify(mem, null, 2);
+
+  $('memory-status').innerHTML = `<span class="st-neutral">${IC.spinner} 保存中...</span>`;
+  $('memory-save').disabled = true;
+
+  try {
+    const fd = new FormData();
+    fd.append('content', content);
+    fd.append('token', token);
+    const r = await fetch('/api/admin/memory', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const err = await r.text();
+      throw new Error(err);
+    }
+    const data = await r.json();
+    $('memory-status').innerHTML = `<span class="st-ok">${IC.check} ${data.message}<br>路径:${data.path} · ${data.habits_count} 条习惯</span>`;
+    // 重新读盘(防止 merge 冲突)
+    setTimeout(loadMemory, 500);
+  } catch (e) {
+    $('memory-status').innerHTML = `<span class="st-err">${IC.alert} 保存失败:${e.message}</span>`;
+  } finally {
+    $('memory-save').disabled = false;
+  }
+}
+
+$('memory-btn').addEventListener('click', openMemoryModal);
+$('memory-close').addEventListener('click', closeMemoryModal);
+$('memory-save').addEventListener('click', saveMemory);
+$('memory-reload').addEventListener('click', loadMemory);
+$('memory-modal').addEventListener('click', e => {
+  if (e.target.id === 'memory-modal') closeMemoryModal();
+});
+
+bootstrap();
+</script>
+</body>
+</html>

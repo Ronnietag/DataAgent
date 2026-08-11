@@ -1,0 +1,100 @@
+{
+  "_comment": "DataAgent 业务规则配置 - 修改后重启 server 生效,无需改代码",
+  "_version": "1.0",
+  "filters": [
+    {
+      "name": "度量值过滤",
+      "description": "用 学术接受度/同期_学术接受度 累加时,务必先用 df['度量值'] == '学术接受度' 过滤,避免不同度量值被错误累加",
+      "priority": "high"
+    },
+    {
+      "name": "离职转岗不排除",
+      "description": "NEW代表 列里包含'(离职)'或'(转岗)'后缀的代表不要排除,这些数据本身是有效的历史学术活动记录(在岗时做的),除非用户明确说'排除离职/转岗'",
+      "priority": "high"
+    },
+    {
+      "name": "同期基数说明",
+      "description": "同期_学术接受度 列基本都是小数(如 0.05、1.5),增长率巨大是正常的(新产品铺货场景),不要当作异常",
+      "priority": "medium"
+    }
+  ],
+  "field_preferences": {
+    "_comment": "字段语义提示,让 LLM 知道哪些列是核心指标",
+    "primary_metrics": [
+      "学术接受度",
+      "同期_学术接受度"
+    ],
+    "secondary_metrics": [
+      "接受度指数"
+    ],
+    "ignore_columns": [
+      "医院ID",
+      "医院ID清洗后",
+      "医院清洗后",
+      "医院",
+      "区县",
+      "市"
+    ]
+  },
+  "output_style": {
+    "_comment": "输出格式偏好 - 全局默认 + format_rules(针对特定列的格式覆盖,可添加多条)",
+    "number_format": "rate_pct",
+    "decimal_places": 2,
+    "thousand_separator": true,
+    "use_chinese_labels": true,
+    "format_rules": [
+      {
+        "name": "金额列",
+        "apply_to_columns": [
+          "销售额",
+          "金额",
+          "GDP_亿元",
+          "学术接受度"
+        ],
+        "decimal_places": 2,
+        "thousand_separator": true,
+        "prefix": "",
+        "suffix": "",
+        "multiplier": 1,
+        "description": "金额/数值类列:千分位 + 2 位小数"
+      }
+    ]
+  },
+  "calculation_rules": {
+    "_comment": "指标计算规则 - 配置 LLM 怎么算同比/达成/各种衍生指标(可添加多条)",
+    "rules": [
+      {
+        "name": "同比增长率",
+        "formula": "(cur - prev) / prev",
+        "description": "用 (本期 - 同期) / 同期,prev=0 时返回 NaN(新产品铺货场景正常)",
+        "category": "growth",
+        "output_format": "rate_pct",
+        "priority": "high"
+      },
+      {
+        "name": "达成率",
+        "formula": "cur / target",
+        "description": "用 当期 / 目标,target=0 时返回 NaN",
+        "category": "achievement",
+        "output_format": "rate_pct",
+        "priority": "high"
+      },
+      {
+        "name": "环比增长率",
+        "formula": "(cur - prev_month) / prev_month",
+        "description": "用 (本月 - 上月) / 上月,处理除零",
+        "category": "growth",
+        "output_format": "rate_pct",
+        "priority": "medium"
+      }
+    ]
+  },
+  "industry_specific": {
+    "_comment": "行业特定提示,可选",
+    "current_industry": "医药 SFE",
+    "business_objective": "代表学术活动覆盖与增长",
+    "compliance_constraints": [
+      "《医药代表管理办法》2026.8.1 施行,合规要求高"
+    ]
+  }
+}

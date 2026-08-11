@@ -1,0 +1,8 @@
+.DS_Store
+.idea/
+__pycache__/
+*.pyc
+output/
+deck/
+web/uploads/
+web/user_memory.json
