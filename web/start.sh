@@ -1,8 +1,19 @@
 #!/bin/bash
 # DataAgent Web 启动脚本
-# 用法:./web/start.sh  (依赖环境变量)
+# 用法:./web/start.sh  (依赖环境变量,自动 source .env)
 
 cd "$(dirname "$0")/.."
+
+# 自动加载 .env(如果存在)
+if [ -f .env ]; then
+  echo "📄 加载 .env"
+  set -a
+  source .env
+  set +a
+elif [ -f .env.example ]; then
+  echo "⚠️  没找到 .env,只有 .env.example 模板"
+  echo "   复制一份:cp .env.example .env && 编辑填实际值"
+fi
 
 # 数据源二选一
 # 1. Excel:export DATA_SOURCE=/path/to/data.xlsx

@@ -8,6 +8,7 @@ import re
 import json
 import time
 import uuid
+import asyncio
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -250,6 +251,76 @@ DATA_SOURCE_SQL_LABEL = os.environ.get("DATA_SOURCE_SQL_LABEL", DATA_SOURCE_LABE
 _global_df: Optional[pd.DataFrame] = None
 _global_meta: dict = {}
 
+# 字段语义字典(启动时扫描一次,注入 prompt 帮 LLM 理解列含义)
+_column_semantics: dict = {}
+
+_DATE_SHAPE_RE = re.compile(r"^\d{4}[-/]\d{1,2}(?:[-/]\d{1,2})?")
+
+def _looks_like_date(values) -> bool:
+    """轻量判断样本是否像日期(正则预判,避免 pd.to_datetime 的 dateutil 慢解析)"""
+    vals = [str(v) for v in list(values)[:5] if str(v).strip()]
+    if not vals:
+        return False
+    hits = sum(1 for v in vals if _DATE_SHAPE_RE.match(v))
+    return hits >= max(1, len(vals) // 2)
+
+def _build_column_semantics(df: pd.DataFrame, max_enum: int = 12) -> dict:
+    """为每列生成语义注解(类型/枚举值/示例/缺失率)。
+
+    - 数值列:标注"数值"
+    - 枚举列(唯一值 ≤ max_enum):列出全部取值(如"度量值"列的指标枚举)
+    - 文本列:给 3 个示例值
+    - 日期列:标注"日期"
+    供 LLM 首轮就理解列含义,减少字段误解导致的报错重试。
+    """
+    sem: dict = {}
+    for col in df.columns:
+        s = df[col]
+        entry: dict = {}
+        na_pct = float(s.isna().mean())
+        if na_pct > 0.05:
+            entry["缺失"] = f"{na_pct:.0%}"
+
+        if pd.api.types.is_bool_dtype(s):
+            entry["类型"] = "布尔"
+        elif pd.api.types.is_numeric_dtype(s):
+            entry["类型"] = "数值"
+        else:
+            sample = s.dropna().head(10)
+            if len(sample) > 0 and _looks_like_date(sample):
+                entry["类型"] = "日期"
+            else:
+                entry["类型"] = "文本"
+            if entry["类型"] == "文本":
+                # 先采样判断基数,避免每列都全量 unique(60 列 × 9 万行会拖慢启动)
+                sample_uniq = [str(u) for u in s.dropna().head(2000).unique()]
+                if len(sample_uniq) > max_enum:
+                    entry["示例"] = sample_uniq[:3]
+                elif sample_uniq:
+                    full_uniq = [str(u) for u in s.dropna().unique()]
+                    if len(full_uniq) <= max_enum:
+                        entry["取值"] = full_uniq
+                    else:
+                        entry["示例"] = full_uniq[:3]
+        sem[str(col)] = entry
+    return sem
+
+
+def _format_column_dict(sem: dict) -> str:
+    """把字段语义字典格式化成 prompt 段落(紧凑单行/列)"""
+    lines = []
+    for col, info in sem.items():
+        t = info.get("类型", "?")
+        if "取值" in info:
+            lines.append(f"- {col}: {t} 枚举[{', '.join(info['取值'])}]")
+        elif "示例" in info:
+            lines.append(f"- {col}: {t}(如 {'、'.join(info['示例'])})")
+        elif "缺失" in info:
+            lines.append(f"- {col}: {t}(缺失 {info['缺失']})")
+        else:
+            lines.append(f"- {col}: {t}")
+    return "\n".join(lines)
+
 def load_data_source():
     global _global_df, _global_meta
 
@@ -282,6 +353,7 @@ def load_data_source():
                 "columns": int(_global_df.shape[1]),
                 "column_list": list(_global_df.columns),
             }
+            _column_semantics = _build_column_semantics(_global_df)
             print(f"   数据库:{db_type} @ {host_part}")
             return
         except Exception as e:
@@ -306,6 +378,7 @@ def load_data_source():
             "columns": int(_global_df.shape[1]),
             "column_list": list(_global_df.columns),
         }
+        _column_semantics = _build_column_semantics(_global_df)
         return
 
     raise RuntimeError(
@@ -405,6 +478,33 @@ def build_system_prompt() -> str:
     return SYSTEM_PROMPT_BASE + build_rules_prompt() + build_memory_prompt()
 
 
+def _compact_history_for_llm(history: List[dict]) -> List[dict]:
+    """压缩历史消息再传给 LLM,控制 prompt 体积、加速首 token 输出:
+    - user 消息原样保留(多轮"再加个条件"依赖原文)
+    - assistant 消息只保留结果摘要(行数/列/前几行预览),省略完整代码块
+    """
+    out: List[dict] = []
+    for h in history:
+        if h["role"] not in ("user", "assistant"):
+            continue
+        if h["role"] == "user":
+            out.append({"role": "user", "content": h.get("content", "")})
+            continue
+        rs = h.get("result_summary")
+        if rs and isinstance(rs, dict):
+            preview = rs.get("preview") or []
+            compact = (
+                f"[上一轮已完成分析,代码略]\n"
+                f"结果:{rs.get('row_count', '?')} 行 × {len(rs.get('columns', []))} 列\n"
+                f"列:{', '.join(rs.get('columns', []))}\n"
+                f"数据预览:{json.dumps([row[:10] for row in preview[:5]], ensure_ascii=False)}"
+            )
+        else:
+            compact = str(h.get("content", ""))[:500]
+        out.append({"role": "assistant", "content": compact})
+    return out
+
+
 def call_llm_with_history(history: List[dict], current_prompt: str) -> str:
     """调用 LLM,带历史对话"""
     if not LLM_API_KEY:
@@ -412,10 +512,9 @@ def call_llm_with_history(history: List[dict], current_prompt: str) -> str:
 
     # 构造 messages:[system, ...history, current_user]
     messages = [{"role": "system", "content": build_system_prompt()}]
-    # history 里如果有 system 跳过,只保留 user/assistant
-    for h in history:
-        if h["role"] in ("user", "assistant"):
-            messages.append(h)
+    # history 里如果有 system 跳过,只保留 user/assistant;assistant 消息做压缩
+    for h in _compact_history_for_llm(history):
+        messages.append(h)
     messages.append({"role": "user", "content": current_prompt})
 
     resp = requests.post(
@@ -425,6 +524,7 @@ def call_llm_with_history(history: List[dict], current_prompt: str) -> str:
             "model": LLM_MODEL,
             "messages": messages,
             "temperature": 0.1,
+            "max_tokens": 4000,
         },
         timeout=180,
     )
@@ -595,6 +695,35 @@ def merge_habits_into_memory(new_habits: list) -> int:
             print(f"   ❌ 写记忆文件失败:{e}")
             return 0
     return merged
+
+
+# ============================================================
+# 用户习惯提取:后台异步 + 冷却(避免每次提问都触发一次 LLM 调用)
+# ============================================================
+HABIT_EXTRACT_COOLDOWN = 90  # 秒,同一 session 冷却期内不再重复提取
+_habit_extract_last: Dict[str, float] = {}
+
+
+def _should_run_habit_extract(session_id: str) -> bool:
+    now = time.time()
+    if now - _habit_extract_last.get(session_id, 0) < HABIT_EXTRACT_COOLDOWN:
+        return False
+    _habit_extract_last[session_id] = now
+    return True
+
+
+async def _extract_habits_async(question: str, answer_summary: str) -> None:
+    """后台抽取用户习惯(独立于主响应流,失败仅打日志,不阻塞/不影响响应)"""
+    try:
+        existing = load_user_memory()
+        extracted = await run_in_threadpool(call_llm_extract_habits, question, answer_summary, existing)
+        if extracted:
+            merged = merge_habits_into_memory(extracted)
+            print(f"   🧠 自动学习:抽到 {len(extracted)} 条偏好,合并 {merged} 条")
+        else:
+            print(f"   🧠 自动学习:本次无新偏好(单次为弱信号,需重复/明确表达)")
+    except Exception as e:
+        print(f"   ⚠️ 习惯提取异常(忽略):{e}")
 
 
 ANALYSIS_PROMPT = """你是数据分析助手。给定用户问题、执行的代码、结果摘要,生成业务洞察和后续问题建议。
@@ -995,7 +1124,10 @@ def run_sandboxed(code: str, df: pd.DataFrame) -> pd.DataFrame:
 
     lines = code.rstrip().split("\n")
     last = lines[-1].strip()
-    if last and "=" not in last and not last.startswith(("result", "print")):
+    # 最后一行若不是 `result = ...` 赋值,则把它的结果赋给 result。
+    # 不能只看行内是否含 "="——`ascending=False` 这类参数赋值会被误判。
+    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=", last) if last else None
+    if last and not (m and m.group(1) == "result") and not last.startswith("print"):
         lines[-1] = f"result = {last}"
         code = "\n".join(lines)
 
@@ -1090,11 +1222,12 @@ async def analyze(
             add_to_session(session_id, "user", question)
 
             # 构造 current prompt(带数据源元信息)
+            column_hint = _format_column_dict(_column_semantics) or json.dumps(_global_meta.get('column_list', []), ensure_ascii=False)
             current_prompt = f"""【数据源】
 {_global_meta.get('label', _global_meta.get('filename'))}({_global_meta.get('rows'):,} 行 × {_global_meta.get('columns')} 列)
 
-【字段列表】
-{json.dumps(_global_meta.get('column_list', []), ensure_ascii=False)}
+【字段字典】(列名 → 类型/取值/示例,写代码前先读这里理解列含义)
+{column_hint}
 
 【数据提示】
 - 如果字段列表里有"度量值"列,该列决定了每一行属于哪种指标(可能有多种,例如"学术接受度"和"接受度指数"),用"学术接受度"和"同期_学术接受度"做累加时,务必先用 df['度量值'] == '学术接受度' 过滤,避免不同度量值被错误累加
@@ -1124,7 +1257,7 @@ async def analyze(
 {question}
 
 【字段】
-{json.dumps(_global_meta.get('column_list', []), ensure_ascii=False)}
+{_format_column_dict(_column_semantics) or json.dumps(_global_meta.get('column_list', []), ensure_ascii=False)}
 
 输出完整 python 代码块。""")
 
@@ -1159,20 +1292,10 @@ async def analyze(
             }
             yield f"data: {json.dumps({'event': 'result', 'data': result_dict, 'code': code, 'question': question}, ensure_ascii=False)}\n\n"
 
-            # 后台异步抽取用户习惯(不阻塞主流程,失败忽略)
-            try:
-                existing = load_user_memory()
-                # 拿结果的前 5 行作为 answer 摘要
+            # 后台异步抽取用户习惯(独立于响应流,带冷却;失败忽略,不拖慢 done 事件)
+            if _should_run_habit_extract(session_id):
                 answer_summary = f"行数={len(result)}, 列={list(result.columns)}, 前 3 行={result.head(3).fillna('').astype(str).values.tolist()}"
-                extracted = await run_in_threadpool(call_llm_extract_habits, question, answer_summary, existing)
-                if extracted:
-                    merged = merge_habits_into_memory(extracted)
-                    print(f"   🧠 自动学习:抽到 {len(extracted)} 条偏好,合并 {merged} 条")
-                else:
-                    print(f"   🧠 自动学习:本次无新偏好(单次为弱信号,需重复/明确表达)")
-            except Exception as e:
-                # 习惯提取不能影响主流程
-                print(f"   ⚠️ 习惯提取异常(忽略):{e}")
+                asyncio.create_task(_extract_habits_async(question, answer_summary))
 
             if do_analysis:
                 # 第二轮 LLM:分析结果 + 建议后续问题

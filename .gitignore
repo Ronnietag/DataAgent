@@ -6,3 +6,5 @@ output/
 deck/
 web/uploads/
 web/user_memory.json
+.env
+.env.example
