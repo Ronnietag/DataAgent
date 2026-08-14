@@ -7,12 +7,24 @@
 import math
 import json
 
-# ---------- 公共常量 ----------
-PAPER = "#F0EFEB"
-INK = "#1C1C1A"
-MUTED = "#8F8E88"
-FAINT = "#C6C5BF"
-GRID = "#DEDDD6"
+# ---------- 公共常量(Wire · 编辑部红, 见 color-presets.js) ----------
+# 灰阶承载全部数据, 橙(HERO)只标每张图一个主角元素(最大柱/峰值/NET/改版后)
+PAPER = "#F0F0EE"             # BG 纸
+INK = "#1F1E1C"               # TXT 墨
+MUTED = "rgba(31,30,28,.60)"  # MUT 次级文字
+FAINT = "rgba(31,30,28,.32)"  # FAINT 来源行/辅助刻度
+GRID = "rgba(31,30,28,.16)"   # GRID 网格/发丝线
+HERO = "#F5572F"              # 荧光橙 —— 每张图只给一个元素
+DATA = "#22211F"              # 数据墨(主数据)
+DATA2 = "#8F8E86"             # 次级数据/减项
+FAINTDATA = "#C0BFB7"         # 淡数据(前值/浅档)
+LAB = "rgba(31,30,28,.72)"    # 行名标签
+FLOOR = "rgba(31,30,28,.24)"  # 底部刻度/未上墨
+TRACK = "rgba(31,30,28,.12)"  # 轨道线
+BEAD = "#8F8E86"              # 串珠
+CAT3 = ["#F5572F", "#22211F", "#8F8E86"]      # 堆叠三段
+CAT3L = ["#F5572F", "#22211F", "#6E6D66"]     # 堆叠段标签
+GRAY = ["#22211F", "#8F8E86", "#C0BFB7"]      # 环形非主角灰阶
 
 # ---------- 单位换算工具 ----------
 
@@ -44,7 +56,7 @@ def _fmt(v) -> str:
 # ---------- 公共 CSS / helpers JS ----------
 
 _CSS = """\
-:root{--bg:#F0EFEB;--ink:#1C1C1A;--muted:#8F8E88;--faint:#C6C5BF;--grid:#DEDDD6}
+:root{--bg:#F0F0EE;--ink:#1F1E1C;--muted:rgba(31,30,28,.60);--faint:rgba(31,30,28,.32);--grid:rgba(31,30,28,.16)}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
 body{background:var(--bg);font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif;color:var(--ink);
@@ -65,7 +77,9 @@ svg text{font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif}
 """
 
 _HELPERS = """\
-const INK='#1C1C1A',PAPER='#F0EFEB',MUTED='#8F8E88',GRID='#DEDDD6';
+const INK='#1F1E1C',PAPER='#F0F0EE',MUTED='rgba(31,30,28,.60)',GRID='rgba(31,30,28,.16)';
+const HERO='#F5572F',DATA='#22211F',DATA2='#8F8E86',FAINTDATA='#C0BFB7';
+const LAB='rgba(31,30,28,.72)',FLOOR='rgba(31,30,28,.24)',TRACK='rgba(31,30,28,.12)',BEAD='#8F8E86',FAINT='rgba(31,30,28,.32)';
 const NS='http://www.w3.org/2000/svg';
 const el=(p,t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);p.appendChild(n);return n};
 const txt=(p,a,s)=>{const n=el(p,'text',a);n.textContent=s;return n};

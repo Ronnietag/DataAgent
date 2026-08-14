@@ -243,6 +243,7 @@ open http://localhost:8765
 
 ### 图表模板库(`web/chart_templates/`)
 - 基于 lieflat-charts 风格(源码在 `vendor/lieflat-charts/`,PolyForm Noncommercial 1.0.0,内部非商业使用)
+- **默认配色:Wire · 编辑部红** —— 灰阶承载全部数据,荧光橙 `#F5572F`(HERO)只标每张图一个主角元素(最大柱 / 峰值点 / 最大扇区 / 第一大行 / 现值标签 / 最底层段 / NET 合计 / 指针圆 / 现值圆),规则对齐官方 `color-presets.js`
 - **10 种图型**:F1 柱状 / F2 折线 / F3 面积 / F4 环形占比 / F5 横向排名 / F6 分组对比 / F7 堆叠 / F9 瀑布 / F11 进度表盘 / F12 哑铃对比
 - 流程:`/api/chart` → LLM 从 10 种图型选型(`CHART_PROMPT` 约束)→ `_build_chart_payload` 按图型契约提取 x/y/y2/y3 列并校验兜底 → `render_chart` 渲染单文件 HTML(内联 CSS/JS,含 IntersectionObserver 懒加载动画)→ 前端 `<iframe sandbox="allow-scripts allow-same-origin" srcdoc>` 展示
 - 数值统一保留 2 位小数(`fmt_val` round),避免图表显示长小数
