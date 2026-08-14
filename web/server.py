@@ -22,6 +22,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
+from chart_templates import render_chart, TEMPLATE_META
+
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
@@ -737,25 +739,34 @@ ANALYSIS_PROMPT = """你是数据分析助手。给定用户问题、执行的�
 """
 
 
-CHART_PROMPT = """你是图表配置生成器。给定用户问题、结果数据(列名 + 前 8 行),选择最合适的图表类型并配置。
+CHART_PROMPT = """你是图表选型器。给定用户问题、结果数据(列名 + 前 8 行),选择最合适的 Lieflat 图型并配置。
 
-支持的图表类型:
-- "bar" : 柱状图(分类对比,如代表 vs 数值)
-- "line" : 折线图(时间趋势)
-- "pie" : 饼图(占比,只用于 < 8 个分类)
-- "scatter" : 散点图(两列数值关系)
-- "horizontal_bar" : 横向柱状图(类目名长时)
+可用图型:
+- F1 : 竖柱(分类比较,≤8 类)
+- F2 : 发丝折线(时间/日期序列,≤30 个点)
+- F3 : 发丝面积(30-60 个点的序列)
+- F4 : 环形占比(100% 构成,≤6 段)
+- F5 : 横向排名(类目名长或想看排名,≤8 行)
+- F6 : 分组柱(每类两个数值列对比,如 今年 vs 去年)
+- F7 : 堆叠柱(≤4 类,每类 ≤3 个数值段)
+- F9 : 瀑布(增减分解:首尾合计,中间加/减项)
+- F11: 进度表盘(单个完成率,0-100%)
+- F12: 哑铃对比(每类前后两个数值列,如 改版前 vs 改版后)
+
+选型规则:
+- 时间/日期列 + 一个数值列:点数 ≤30 用 F2,30-60 用 F3
+- 类别列 + 一个数值列:看排名或类目名长用 F5,普通比较用 F1
+- 占比/构成类问题:用 F4
+- 每个类别有两个数值列要对比(今年 vs 去年 / 改版前 vs 后):用 F6
+- 每个类别有 2-3 个数值列要堆叠求和:用 F7
+- 数值有增减分解(毛收入→扣减项→净利):用 F9
+- 单个完成率/进度:用 F11
+- 每个类别前后两个数值对比:用 F12
 
 只输出严格的 JSON,不要其他文字:
-{"type": "bar", "title": "图表标题", "x": "X 轴列名", "y": "Y 轴列名", "x_label": "X 轴标题(可选)", "y_label": "Y 轴标题(可选)"}
+{"template": "F1", "title": "结论式标题", "x": "类别/时间列名", "y": "数值列名(主)", "y2": "第二数值列(仅 F6/F7/F12)", "y3": "第三数值列(仅 F7)", "sub": "副标题(图例/时间范围)"}
 
-判断规则:
-- 有时间/日期/月份列 + 数值:用 line
-- 类目(如代表/大区/产品) + 数值:用 bar
-- 占比类问题 + 分类 < 8:用 pie
-- 两个数值列相关:用 scatter
-- 类目名长(如代表姓名):用 horizontal_bar
-"""
+x 必须是上述列名中的**原样一个**;y/y2/y3 必须是数值列列名(含增长率/占比的列优先)。"""
 
 
 REPORT_PROMPT = """你是数据分析师,负责基于用户的分析问题和数据结果,撰写一份**专业、结构化的中文分析报告**。
@@ -885,22 +896,32 @@ def call_llm_session_report(items: list) -> str:
     return _clean_think(resp.json()["choices"][0]["message"]["content"])
 
 
-_CHART_TYPE_ALIASES = {
-    "bar": "bar", "column": "bar", "bar_chart": "bar", "barchart": "bar", "柱状图": "bar",
-    "horizontal_bar": "horizontal_bar", "horizontal": "horizontal_bar", "hbar": "horizontal_bar",
-    "h_bar": "horizontal_bar", "横向": "horizontal_bar", "横向柱状图": "horizontal_bar",
-    "line": "line", "line_chart": "line", "折线图": "line", "trend": "line",
-    "pie": "pie", "pie_chart": "pie", "donut": "pie", "饼图": "pie",
-    "scatter": "scatter", "散点图": "scatter", "point": "scatter",
+_TEMPLATE_ALIASES = {
+    "F1": "F1", "bar": "F1", "column": "F1", "bar_chart": "F1", "柱状图": "F1", "竖柱": "F1",
+    "F2": "F2", "line": "F2", "line_chart": "F2", "折线图": "F2", "趋势": "F2",
+    "F3": "F3", "area": "F3", "面积图": "F3",
+    "F4": "F4", "pie": "F4", "pie_chart": "F4", "donut": "F4", "饼图": "F4", "环形": "F4", "占比": "F4",
+    "F5": "F5", "horizontal_bar": "F5", "hbar": "F5", "横向": "F5", "横向柱状图": "F5", "排名": "F5",
+    "F6": "F6", "grouped": "F6", "分组": "F6", "分组柱": "F6",
+    "F7": "F7", "stacked": "F7", "堆叠": "F7", "堆叠柱": "F7",
+    "F9": "F9", "waterfall": "F9", "瀑布": "F9",
+    "F11": "F11", "gauge": "F11", "进度": "F11",
+    "F12": "F12", "dumbbell": "F12", "哑铃": "F12", "哑铃对比": "F12",
 }
 
 
-def _normalize_chart_type(t) -> str:
-    """把 LLM 输出的图表类型别名归一化,非法返回 None"""
+def _normalize_template(t):
+    """把 LLM 输出的图型编号/别名归一化,非法返回 None"""
     if not isinstance(t, str):
         return None
-    key = t.strip().lower().replace(" ", "_")
-    return _CHART_TYPE_ALIASES.get(key)
+    key = t.strip()
+    hit = _TEMPLATE_ALIASES.get(key)
+    if hit is not None:
+        return hit
+    key = key.lower().replace(" ", "_").replace("-", "_")
+    if re.match(r"^f\d+$", key):
+        key = "F" + key[1:]
+    return _TEMPLATE_ALIASES.get(key)
 
 
 def _is_numeric_col(rows: list, idx: int, sample: int = 20) -> bool:
@@ -926,13 +947,15 @@ def _is_numeric_col(rows: list, idx: int, sample: int = 20) -> bool:
     return hits >= max(1, len(rows) // 2)
 
 
-def _pick_chart_axes(cfg: dict, columns: list, preview: list, ctype: str = "bar") -> tuple:
-    """校验并兜底 x/y 列名。规则:
-    - y 必须是数值列(优先率/占比类)
-    - 非 scatter 时 x 必须是类别列(防 LLM 把数值列当 x,如 x/y 放反时自动纠正)
-    - scatter 需要两个不同的数值列
+def _pick_chart_cols(cfg: dict, columns: list, preview: list) -> dict:
+    """校验并兜底 x/y/y2/y3 列名。规则:
+    - y/y2/y3 必须是数值列(优先率/占比类)
+    - x 必须是类别列(防 LLM 把数值列当 x,如 x/y 放反时自动纠正)
+    - F7 最多取 3 个数值列堆叠
     """
+    template = cfg.get("template", "F1")
     x, y = cfg.get("x", ""), cfg.get("y", "")
+    y2, y3 = cfg.get("y2", ""), cfg.get("y3", "")
     num_cols = [c for c in columns if _is_numeric_col(preview, columns.index(c))]
     cat_cols = [c for c in columns if c not in num_cols]
 
@@ -944,18 +967,29 @@ def _pick_chart_axes(cfg: dict, columns: list, preview: list, ctype: str = "bar"
         y = (next((c for c in num_cols if re.search(r"率|占比|份额|rate|ratio|pct|growth", c, re.I)), None)
              or (num_cols[0] if num_cols else columns[-1]))
 
-    if ctype == "scatter":
-        if x not in num_cols or x == y:
-            x = next((c for c in num_cols if c != y), None) or x
-    else:
+    if template in ("F6", "F12"):
+        if y2 not in num_cols or y2 == y:
+            y2 = next((c for c in num_cols if c != y), None) or y
+
+    if template == "F7":
+        segs = [c for c in (y, y2, y3) if c in num_cols]
+        for c in num_cols:
+            if len(segs) >= 3:
+                break
+            if c not in segs:
+                segs.append(c)
+        y, y2, y3 = segs[0], (segs[1] if len(segs) > 1 else None), (segs[2] if len(segs) > 2 else None)
+
+    if template != "F11":
         if x not in cat_cols or x == y:
             x = (cat_cols[0] if cat_cols
                  else next((c for c in num_cols if c != y), None) or columns[0])
-    return x, y
+
+    return {"x": x, "y": y, "y2": y2, "y3": y3}
 
 
 def call_llm_chart(context: dict) -> dict:
-    """LLM 选图表类型 + 配置(返回前做类型归一化 + x/y 列名校验,防止 LLM 输出不合法配置)"""
+    """LLM 选 Lieflat 图型 + 配置(返回前做图型归一化 + x/y 列名校验,防止 LLM 输出不合法配置)"""
     user_prompt = f"""【用户问题】
 {context['question']}
 
@@ -965,7 +999,7 @@ def call_llm_chart(context: dict) -> dict:
 【前 8 行数据】
 {json.dumps(context['preview'], ensure_ascii=False, indent=2)}
 
-请选择最合适的图表类型并输出配置。x 必须是上述列名中的**原样一个**,y 必须是数值列列名(含增长率/占比的列优先)。"""
+请选择最合适的图表图型并输出配置。x 必须是上述列名中的**原样一个**,y/y2/y3 必须是数值列列名(含增长率/占比的列优先)。"""
 
     resp = requests.post(
         f"{LLM_BASE_URL}/chat/completions",
@@ -991,16 +1025,147 @@ def call_llm_chart(context: dict) -> dict:
                 cfg = parsed
         except json.JSONDecodeError:
             pass
-    ctype = _normalize_chart_type(cfg.get("type")) or "bar"
-    x, y = _pick_chart_axes(cfg, context["columns"], context.get("preview", []), ctype)
+    ctype = _normalize_template(cfg.get("template") or cfg.get("type")) or "F1"
+    cols = _pick_chart_cols({**cfg, "template": ctype}, context["columns"], context.get("preview", []))
     return {
-        "type": ctype,
+        "template": ctype,
         "title": str(cfg.get("title") or context.get("question", ""))[:80],
-        "x": x,
-        "y": y,
-        "x_label": str(cfg.get("x_label") or ""),
+        "sub": str(cfg.get("sub") or ""),
+        "x": cols["x"],
+        "y": cols["y"],
+        "y2": cols.get("y2"),
+        "y3": cols.get("y3"),
         "y_label": str(cfg.get("y_label") or ""),
+        "x_label": str(cfg.get("x_label") or ""),
     }
+
+
+def _to_float(v) -> float:
+    """容忍千分位/百分号/中文负号的数值解析"""
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip().replace(",", "").replace("%", "").replace("－", "-")
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _build_chart_payload(cfg: dict, result_data: dict) -> Optional[dict]:
+    """从结果数据按图型契约提取 payload,无法构造返回 None"""
+    columns = result_data.get("columns", [])
+    rows = result_data.get("rows", [])
+    if not columns or not rows:
+        return None
+    template = cfg.get("template", "F1")
+    meta = TEMPLATE_META.get(template)
+    if not meta:
+        return None
+
+    def col_idx(name):
+        try:
+            return columns.index(name)
+        except ValueError:
+            return -1
+
+    def num_idxs():
+        return [i for i in range(len(columns)) if _is_numeric_col(rows, i)]
+
+    def fmt_val(v) -> float:
+        """数值解析并统一保留 2 位小数(rules.json 全局 decimal_places=2)"""
+        return round(_to_float(v), 2)
+
+    xi, yi = col_idx(cfg.get("x") or ""), col_idx(cfg.get("y") or "")
+    if yi < 0:
+        ni = num_idxs()
+        yi = ni[-1] if ni else len(columns) - 1
+    if xi < 0:
+        xi = 0
+
+    max_rows = meta.get("max_rows", 8)
+    rows = rows[:max_rows]
+    labels = [str(r[xi]) if xi < len(r) else "" for r in rows]
+    values = [fmt_val(r[yi]) if yi < len(r) else 0.0 for r in rows]
+
+    y_label = str(cfg.get("y_label") or columns[yi]) if 0 <= yi < len(columns) else "数值"
+    payload = {"y_label": y_label}
+
+    if template == "F11":
+        payload["value"] = values[0] if values else 0.0
+        payload["goal"] = 100
+        return payload
+
+    if template in ("F2", "F3"):
+        if template == "F3" and len(values) < meta.get("min_rows", 30):
+            return None
+        payload["labels"] = labels
+        payload["values"] = values
+        return payload
+
+    if template in ("F1", "F4", "F5"):
+        if template == "F4" and sum(values) <= 0:
+            return None
+        payload["labels"] = labels
+        payload["values"] = values
+        return payload
+
+    if template in ("F6", "F12"):
+        y2i = col_idx(cfg.get("y2") or "")
+        if y2i < 0:
+            ni = [i for i in num_idxs() if i != yi]
+            y2i = ni[0] if ni else yi
+        v2 = [fmt_val(r[y2i]) if y2i < len(r) else 0.0 for r in rows]
+        payload["labels"] = labels
+        payload["values_a"] = v2
+        payload["values_b"] = values
+        return payload
+
+    if template == "F7":
+        seg_cols = [c for c in (cfg.get("y"), cfg.get("y2"), cfg.get("y3")) if c and col_idx(c) >= 0][:3]
+        if len(seg_cols) < 2:
+            seg_cols = [columns[i] for i in num_idxs()[:3]]
+        cols_idx = [col_idx(c) for c in seg_cols]
+        payload["labels"] = labels
+        payload["segs"] = seg_cols
+        payload["values"] = [[
+            fmt_val(r[ci]) if ci < len(r) else 0.0
+            for ci in cols_idx
+        ] for r in rows]
+        return payload
+
+    if template == "F9":
+        if len(values) < 3:
+            return None
+        is_total = [False] * len(values)
+        is_total[0] = is_total[-1] = True
+        payload["labels"] = labels
+        payload["values"] = values
+        payload["is_total"] = is_total
+        return payload
+
+    return None
+
+
+def _default_sub(payload: dict, cfg: dict) -> str:
+    """LLM 没给副标题时,按图型生成默认图例说明"""
+    t = cfg.get("template")
+    yl = payload.get("y_label") or ""
+    if t == "F4":
+        return f"占比构成 · 共 {len(payload.get('values', []))} 段"
+    if t in ("F6", "F12"):
+        return f"{cfg.get('y2') or '前值'} → {cfg.get('y') or '现值'} · 每类一组"
+    if t == "F7":
+        return " / ".join(payload.get("segs", []))
+    if t == "F11":
+        return "目标完成率 · 一格 = 1%"
+    if t == "F9":
+        return "首尾合计 · 中间为增减项"
+    n = len(payload.get("values", []))
+    return f"{yl} · 共 {n} 条" if n else yl
 
 
 def call_llm_analysis(context: dict) -> dict:
@@ -1356,23 +1521,43 @@ async def chart(
     question: str = Form(...),
     result_json: str = Form(...),
 ):
-    """根据 result 数据生成图表配置(LLM 选类型,前端用 ECharts 渲染)"""
+    """根据 result 数据选 Lieflat 图型并渲染为单文件 HTML(前端 iframe 展示)"""
     if _global_df is None:
         raise HTTPException(500, "数据源未加载")
 
+    result_data = json.loads(result_json)
+    cfg = None
     try:
-        result_data = json.loads(result_json)
-        chart_cfg = await run_in_threadpool(call_llm_chart, {
+        cfg = await run_in_threadpool(call_llm_chart, {
             "question": question,
             "columns": result_data.get("columns", []),
             "preview": result_data.get("rows", [])[:8],
         })
-    except Exception as e:
-        # fallback:默认 bar
-        cols = json.loads(result_json).get("columns", [])
-        chart_cfg = {"type": "bar", "title": question[:30], "x": cols[0] if cols else "", "y": cols[-1] if cols else ""}
+    except Exception:
+        cfg = None
 
-    return chart_cfg
+    if not cfg:
+        cols = result_data.get("columns", [])
+        cfg = {"template": "F1", "title": question[:30], "sub": "",
+               "x": cols[0] if cols else "", "y": cols[-1] if cols else "",
+               "y2": None, "y3": None, "y_label": "", "x_label": ""}
+
+    payload = _build_chart_payload(cfg, result_data)
+    if payload is None:
+        cfg = {**cfg, "template": "F1"}
+        payload = _build_chart_payload(cfg, result_data)
+    if payload is None:
+        raise HTTPException(500, "无法从结果数据构造图表")
+
+    try:
+        title = str(cfg.get("title") or question)[:80]
+        sub = str(cfg.get("sub") or "") or _default_sub(payload, cfg)
+        src = f"{cfg['template']} · {DATA_SOURCE_LABEL}"
+        html = await run_in_threadpool(render_chart, cfg["template"], payload, title, sub, src)
+    except Exception as e:
+        raise HTTPException(500, f"图表渲染失败:{e}")
+
+    return {"html": html, "template": cfg["template"], "title": title}
 
 
 @app.post("/api/report")

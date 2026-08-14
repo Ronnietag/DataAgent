@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DataAgent</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <style>
   :root {
@@ -175,7 +174,8 @@
 
   .chart-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; background: #fff; box-shadow: var(--shadow-sm); }
   .chart-title { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text-2); margin: 0 0 12px; }
-  .chart-container { width: 100%; height: 360px; }
+  .chart-iframe-wrap { width: 100%; height: 380px; }
+  .lieflat-frame { width: 100%; height: 100%; border: 0; border-radius: 8px; display: block; }
 
   .report-card { border: 1px solid var(--accent); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: var(--shadow-sm); }
   .report-card-head {
@@ -545,7 +545,6 @@ function safeMarkdown(md) {
 
 let sessionId = null;
 let busy = false;
-const chartInstances = new Map();
 
 async function bootstrap() {
   const h = await fetch('/api/health').then(r => r.json());
@@ -734,7 +733,15 @@ function formatCell(value, columnName) {
     });
   }
 
-  return escapeHtml(s);
+  // 兜底:其他纯数值列(如学术接受度/指数/占比值)→ 整数保持整数,小数 2 位 + 千分位
+  // 非纯数字字符串(日期/编号/文本)保持原样,避免误格式化
+  const trimmed = s.trim();
+  if (!/^-?\d[\d,]*(\.\d+)?$/.test(trimmed)) return escapeHtml(s);
+  const cleanNum = parseFloat(trimmed.replace(/,/g, ''));
+  return cleanNum.toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 function appendUserMessage(text) {
@@ -898,31 +905,27 @@ async function loadChart(aiMsg, msgId) {
   if (!aiMsg._resultData) return;
 
   btn.disabled = true;
-  btn.innerHTML = `<span class="st-running">${IC.spinner} 选图中</span>`;
-  statusEl.innerHTML = `<span class="st-running">${IC.spinner} 选图表类型</span>`;
+  btn.innerHTML = `<span class="st-running">${IC.spinner} 生成图表中</span>`;
+  statusEl.innerHTML = `<span class="st-running">${IC.spinner} 选图型并渲染</span>`;
 
   try {
     const fd = new FormData();
     fd.append('question', aiMsg._question);
     fd.append('result_json', JSON.stringify(aiMsg._resultData));
     const r = await fetch('/api/chart', { method: 'POST', body: fd });
-    const cfg = await r.json();
+    const res = await r.json();
+    if (!res.html) throw new Error(res.detail || '图表生成失败');
 
-    const containerId = 'chart_' + msgId;
     chartEl.innerHTML = `<div class="chart-card">
-      <p class="chart-title">${IC.chart} ${escapeHtml(cfg.title || '图表')}</p>
-      <div id="${containerId}" class="chart-container"></div>
+      <p class="chart-title">${IC.chart} ${escapeHtml(res.title || '图表')}</p>
+      <div class="chart-iframe-wrap"></div>
     </div>`;
 
-    requestAnimationFrame(() => {
-      const dom = document.getElementById(containerId);
-      if (!dom) return;
-      const old = chartInstances.get(containerId);
-      if (old) old.dispose();
-      const chart = echarts.init(dom);
-      chart.setOption(buildEChartsOption(cfg, aiMsg._resultData));
-      chartInstances.set(containerId, chart);
-    });
+    const fr = document.createElement('iframe');
+    fr.className = 'lieflat-frame';
+    fr.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+    fr.srcdoc = res.html;
+    chartEl.querySelector('.chart-iframe-wrap').appendChild(fr);
 
     btn.innerHTML = `${IC.check} 已生成图表`;
     btn.classList.add('opacity-60');
@@ -934,112 +937,6 @@ async function loadChart(aiMsg, msgId) {
   }
 }
 
-function parseNum(v) {
-  if (v === null || v === undefined || v === '') return NaN;
-  if (typeof v === 'number') return isFinite(v) ? v : NaN;
-  const s = String(v).replace(/,/g, '').replace(/%/g, '').trim();
-  if (!s) return NaN;
-  const n = parseFloat(s);
-  return isFinite(n) ? n : NaN;
-}
-
-function isRateCol(name) {
-  return /率|同比|占比|份额|百分数|百分比|percent|rate|ratio|pct|growth|%\s*$/.test((name || '').toLowerCase());
-}
-
-function buildEChartsOption(cfg, data) {
-  const { type, x, y, x_label, y_label, title } = cfg;
-  const { columns, rows } = data;
-  let xIdx = columns.indexOf(x);
-  let yIdx = columns.indexOf(y);
-
-  // 防御性兜底:后端已校验,这里再兜一层(例如旧缓存数据)
-  const numIdx = columns.map((c, i) =>
-    rows.filter(r => !isNaN(parseNum(r[i]))).length >= Math.max(1, rows.length / 2) ? i : -1
-  ).filter(i => i >= 0);
-  const catIdx = columns.map((c, i) => (numIdx.includes(i) ? -1 : i)).filter(i => i >= 0);
-
-  // LLM 把 x/y 整体放反(数值列当 x、文本列当 y)时先交换,保留 LLM 的列选择意图
-  if (numIdx.includes(xIdx) && !numIdx.includes(yIdx)) {
-    [xIdx, yIdx] = [yIdx, xIdx];
-  }
-
-  // y 必须是数值列(优先率/占比类)
-  if (!numIdx.includes(yIdx)) {
-    const rateIdx = numIdx.find(i => isRateCol(columns[i]));
-    yIdx = (rateIdx !== undefined ? rateIdx : numIdx[0]) ?? -1;
-  }
-  if (type === 'scatter') {
-    // 散点需要两个不同的数值列
-    if (xIdx === yIdx || !numIdx.includes(xIdx)) {
-      xIdx = numIdx.find(i => i !== yIdx) ?? -1;
-    }
-  } else {
-    // 非散点:x 应为类别列(防 LLM 把 x/y 放反,如数值列当 x)
-    if (!catIdx.includes(xIdx) || xIdx === yIdx) {
-      xIdx = catIdx.length ? catIdx[0] : (numIdx.find(i => i !== yIdx) ?? -1);
-    }
-  }
-  if (xIdx < 0 || yIdx < 0) {
-    return { title: { text: '字段映射错误:' + (columns.join(',')), left: 'center' } };
-  }
-
-  const categories = rows.map(r => r[xIdx]);
-  const isRateY = isRateCol(columns[yIdx]);
-  const yName = y_label || (isRateY ? columns[yIdx] + '(%)' : columns[yIdx]);
-  const values = rows.map(r => {
-    const n = parseNum(r[yIdx]);
-    if (isNaN(n)) return 0;
-    return isRateY ? n * 100 : n;
-  });
-
-  const baseOption = {
-    title: { text: title || `${yName} by ${x}`, left: 'center', textStyle: { fontSize: 14 } },
-    tooltip: { trigger: 'axis' },
-    grid: { left: 60, right: 30, top: 50, bottom: 80 },
-    xAxis: {
-      type: 'category', data: categories,
-      axisLabel: { rotate: categories.length > 8 ? 45 : 0, fontSize: 11 },
-    },
-    yAxis: { type: 'value', name: yName, nameTextStyle: { fontSize: 11 } },
-  };
-
-  if (type === 'bar' || type === 'horizontal_bar') {
-    if (type === 'horizontal_bar') {
-      baseOption.xAxis = { type: 'value', name: x_label || x };
-      baseOption.yAxis = { type: 'category', data: categories, name: y_label || y };
-    }
-    return { ...baseOption, series: [{ type: 'bar', data: values, itemStyle: { color: '#3b82f6' }, label: { show: true, position: type === 'horizontal_bar' ? 'right' : 'top', fontSize: 10 } }] };
-  } else if (type === 'line') {
-    return { ...baseOption, series: [{ type: 'line', data: values, smooth: true, itemStyle: { color: '#3b82f6' }, areaStyle: { opacity: 0.2 } }] };
-  } else if (type === 'pie') {
-    const pieData = categories.map((c, i) => ({ name: c, value: values[i] })).filter(d => d.value > 0);
-    return {
-      title: baseOption.title,
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      series: [{ type: 'pie', radius: '60%', data: pieData, label: { fontSize: 11 } }]
-    };
-  } else if (type === 'scatter') {
-    // 散点图需要两个数值轴;跳过 x 非数值的行,全部不可用才退化为 bar
-    const scatterData = [];
-    for (let i = 0; i < categories.length; i++) {
-      const xv = parseNum(categories[i]);
-      if (!isNaN(xv)) scatterData.push([xv, values[i]]);
-    }
-    if (scatterData.length === 0) {
-      return { ...baseOption, series: [{ type: 'bar', data: values, itemStyle: { color: '#3b82f6' }, label: { show: true, position: 'top', fontSize: 10 } }] };
-    }
-    return {
-      title: baseOption.title,
-      tooltip: { trigger: 'item', formatter: p => `${x_label || columns[xIdx]}: ${p.value[0]}<br/>${yName}: ${p.value[1]}` },
-      xAxis: { type: 'value', name: x_label || columns[xIdx], nameTextStyle: { fontSize: 11 } },
-      yAxis: { type: 'value', name: yName, nameTextStyle: { fontSize: 11 } },
-      series: [{ type: 'scatter', data: scatterData, symbolSize: 12, itemStyle: { color: '#3b82f6' } }]
-    };
-  }
-  return { title: { text: '未知图表类型:' + type, left: 'center' } };
-}
-
 async function clearSession() {
   if (!sessionId) {
     $('messages').innerHTML = '';
@@ -1047,8 +944,6 @@ async function clearSession() {
     return;
   }
   await fetch('/api/session/clear', { method: 'POST', body: new FormData([['session_id', sessionId]]) });
-  chartInstances.forEach(c => c.dispose());
-  chartInstances.clear();
   $('messages').innerHTML = '';
   $('messages').appendChild(makeEmptyHint());
 }
