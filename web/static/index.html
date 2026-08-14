@@ -495,6 +495,21 @@
 <script>
 const $ = id => document.getElementById(id);
 
+// ════════════════════════════════════════════════════════════════
+//  JS 模块分块索引(快速定位 — 行号会随改动漂移,函数名为准)
+// ════════════════════════════════════════════════════════════════
+//  • 工具与原语   svg / safeMarkdown / escapeHtml / formatCell /
+//                makeEmptyHint / scrollToBottom / setInputEnabled
+//  • 消息与会话   enableSessionReport / handleEvent /
+//                appendUserMessage / appendAIMessage /
+//                closeSessionModal / downloadMarkdown
+//  • 分析结果渲染 renderAnalysis / renderResult
+//  • 配置/规则编辑 closeAdminModal / renderAdminForm /
+//                renderFilterRow / renderFormatRuleRow /
+//                renderCalcRuleRow / collectAdminForm
+//  • 记忆表单     closeMemoryModal / renderMemoryForm
+// ════════════════════════════════════════════════════════════════
+
 const svg = (body, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 
 const IC = {
@@ -565,6 +580,7 @@ async function bootstrap() {
   $('question-input').focus();
 }
 
+// ──────────────── 消息与会话 ────────────────
 function enableSessionReport() {
   // 第一个 AI 回答后启用
   const btn = $('session-report-btn');
@@ -661,6 +677,7 @@ function handleEvent(evt, aiMsg) {
   }
 }
 
+// ──────────────── 分析结果渲染 ────────────────
 function renderAnalysis(data, container) {
   const { insight, suggestions = [] } = data;
   let html = '';
@@ -1030,6 +1047,7 @@ async function openAdminModal() {
   await loadAdminRules();
 }
 
+// ──────────────── 配置/规则编辑 ────────────────
 function closeAdminModal() {
   $('admin-modal').classList.add('hidden');
 }
@@ -1515,6 +1533,7 @@ async function loadMemory() {
   }
 }
 
+// ──────────────── 记忆表单 ────────────────
 function renderMemoryForm() {
   const habits = _memory.habits || [];
 
