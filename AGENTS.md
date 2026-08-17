@@ -59,6 +59,19 @@ python3 data_agent.py <excel路径> --dry-run
 3. **中文**：全项目中文，代码注释、UI、报告均用中文
 4. **前端约束**：改样式可以，但所有 `id`/`class` 钩子/`data-*` 绑定与 JS 逻辑不能动（历史约束）
 
+## 决策记录 (`docs/decisions/`)
+
+项目的关键"为什么"沉淀在 [docs/decisions/](docs/decisions/),每条决策对应一个 ADR 文件:
+
+- [ADR-0001](docs/decisions/0001-sandbox-security-baseline.md) 沙箱安全基线（AST + runtime 双层防御）
+- [ADR-0002](docs/decisions/0002-rules-externalization.md) 业务规则外置到 `web/rules.json`
+- [ADR-0003](docs/decisions/0003-numeric-format-decimal-rate.md) 数值口径（LLM 输出小数比率，前端 ×100 显示 %）
+- [ADR-0004](docs/decisions/0004-excel-load-cap.md) Excel 加载上限 `nrows=200_000`
+- [ADR-0005](docs/decisions/0005-single-file-frontend.md) 单 HTML 前端 + 内部分块标记
+- [ADR-0006](docs/decisions/0006-wire-editorial-red-color.md) 图表默认配色 Wire · 编辑部红
+
+引入/修改架构原则时,**新建或更新一条 ADR**(模板见 `docs/decisions/README.md`),不要只留在 commit message 里。
+
 ## 不要做的事
 
 - 不要给 LLM 沙箱外直接执行任意代码的能力
