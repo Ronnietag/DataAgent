@@ -31,12 +31,14 @@ export MINIMAX_API_KEY=sk-xxx    # 或 DEEPSEEK_API_KEY / OPENAI_API_KEY
 # 3. 指定数据源
 export DATA_SOURCE=/path/to/your-data.xlsx
 
-# 4. 启动
+# 4. 启动（本地运行）
 ./web/start.sh
 
 # 5. 浏览器打开
 open http://localhost:8765
 ```
+
+> ⚠️ **仅本地运行**：FastAPI 后端使用 pandas/内存 DataFrame，不适合部署到 Serverless 平台（如 Vercel）。如需公网访问，请用传统服务器（Docker、Railway、Render 等）。
 
 ---
 
